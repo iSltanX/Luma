@@ -14,3 +14,4 @@ src-tauri/target/
 test-results/
 playwright-report/
 /tests/e2e/.cache/
+/tests/e2e/*-snapshots/*-actual.png

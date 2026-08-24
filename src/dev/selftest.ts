@@ -9,6 +9,8 @@
 
 import type { EditorCore } from "../editor";
 import { buildLongDocument } from "./corpus";
+import { theme } from "../lib/theme.svelte";
+import { THEME_IDS } from "../tokens/themes";
 
 export interface Check {
   id: string;
@@ -274,6 +276,82 @@ export async function runSelfTest(
     p95 < 16,
     `${wordsTotal} كلمة — بناء ${mountMs}ms، حرف p50 ${p50}ms / p95 ${p95}ms`,
   );
+
+  // ── ٦ب · تبديل الثيم لا يفقد المؤشر ولا التمرير ────────────
+  // معيار اكتمال المرحلة ٤: «يغيّر كل السطوح فورًا بلا وميض وبلا
+  // فقد موضع التمرير أو المؤشر».
+  {
+    editor.setBlocks(buildLongDocument(3000));
+    editor.focus();
+    editor.caretToEnd();
+    await paint();
+
+    // يُبحث عن العنصر القابل للتمرير فعلًا لا عن صنف بعينه:
+    // أصناف Svelte مُلحقة بلاحقة، والاعتماد عليها هشّ.
+    let scroller: Element | null = host;
+    const chain: string[] = [];
+    while (scroller) {
+      chain.push(
+        `${scroller.tagName}.${(scroller.className || "").toString().split(" ")[0]}:${scroller.scrollHeight}/${scroller.clientHeight}`,
+      );
+      // حاوية تمرير حقيقية: محتوى فائض **و**`overflow` يسمح بالتمرير.
+      // الفيض وحده لا يكفي — عنصر بلا `overflow:auto` لا يستجيب لـscrollTop.
+      const oy = getComputedStyle(scroller).overflowY;
+      if (
+        scroller.scrollHeight > scroller.clientHeight + 4 &&
+        (oy === "auto" || oy === "scroll")
+      ) {
+        break;
+      }
+      scroller = scroller.parentElement;
+    }
+    if (scroller) scroller.scrollTop = 400;
+    await paint();
+
+    const beforeScroll = scroller?.scrollTop ?? -1;
+    const beforeCaret = editor.caretRect();
+    const beforeBlocks = JSON.stringify(editor.getBlocks());
+    const original = theme.id;
+
+    // يمرّ على الثيمات الخمسة كلها
+    const surfaces: string[] = [];
+    for (const id of THEME_IDS) {
+      theme.apply(id);
+      await paint();
+      // تُقرأ قيمة الرمز لا الخلفية المحسوبة: الخلفية تحت انتقال
+      // زمني، فقراءتها أثناءه تُرجع قيمة وسيطة لا قيمة الثيم.
+      surfaces.push(
+        getComputedStyle(document.documentElement)
+          .getPropertyValue("--surface-canvas")
+          .trim(),
+      );
+    }
+    theme.apply(original);
+    await paint();
+
+    const afterScroll = scroller?.scrollTop ?? -2;
+    const afterCaret = editor.caretRect();
+    const afterBlocks = JSON.stringify(editor.getBlocks());
+
+    const distinct = new Set(surfaces).size;
+    // تمرير صفري يجعل المقارنة بلا معنى: يُشترط أن يكون قد تحرّك فعلًا
+    const scrollWasReal = beforeScroll > 0;
+    const scrollKept = scrollWasReal && beforeScroll === afterScroll;
+    const caretKept =
+      !!beforeCaret && !!afterCaret &&
+      Math.abs(beforeCaret.top - afterCaret.top) < 1 &&
+      Math.abs(beforeCaret.left - afterCaret.left) < 1;
+    const contentKept = beforeBlocks === afterBlocks;
+
+    add(
+      "theme-switch",
+      "تبديل الثيم يحفظ المؤشر والتمرير والمحتوى",
+      scrollKept && caretKept && contentKept && distinct === 5,
+      `${distinct}/5 خلفيات متمايزة — تمرير ${beforeScroll}→${afterScroll}` +
+        `${scrollWasReal ? "" : ` (لم يتحرّك — السلسلة: ${chain.join(" ← ")})`} — ` +
+        `المؤشر ${caretKept ? "ثابت" : "تحرّك"} — المحتوى ${contentKept ? "مطابق" : "تغيّر"}`,
+    );
+  }
 
   // ── ٧ · دورة الحفظ الكاملة عبر النواة ──────────────────────
   if (invoke) {

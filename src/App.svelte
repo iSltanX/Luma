@@ -2,9 +2,12 @@
   import { onMount, onDestroy } from "svelte";
   import { EditorCore, emptyDocument, type Block } from "./editor";
   import { words } from "./lib/bidi";
+  import Gallery from "./dev/Gallery.svelte";
   import { EditorSession } from "./lib/session";
   import type { SaveState } from "./lib/autosave";
   import SaveStatus from "./components/SaveStatus.svelte";
+  import { theme } from "./lib/theme.svelte";
+  import { THEMES, type ThemeId } from "./tokens/themes";
 
   // المرحلة ٣ — الحفظ والاستمرارية.
   // الإطار وشريط الأسطح والمكتبة والثيمات في المرحلتين ٤ و٥.
@@ -15,7 +18,15 @@
   let saveState = $state<SaveState>({ kind: "idle" });
 
   let session: EditorSession | null = null;
+  let gallery = $state(false);
   const cleanups: Array<() => void> = [];
+  let savePrefs: ((v: Record<string, unknown>) => void) | null = null;
+
+  /** تبديل الثيم: يُطبَّق فورًا ثم يُحفظ. لا انتظار للقرص قبل الرؤية. */
+  function pickTheme(id: ThemeId) {
+    theme.apply(id);
+    savePrefs?.({ themeId: id });
+  }
 
   const editor = new EditorCore({
     onChange: (blocks) => {
@@ -29,6 +40,11 @@
   });
 
   onMount(async () => {
+    // معرض المكونات على طبقة الويب — لـPlaywright وحده
+    if (new URLSearchParams(location.search).has("gallery")) {
+      gallery = true;
+      return;
+    }
     if (!hostEl) return;
     const host = hostEl;
     editor.mount(host, emptyDocument());
@@ -41,6 +57,15 @@
     } catch {
       return; // خارج Luma.app — المحرر يعمل بلا تخزين
     }
+
+    // التفضيلات أولًا: الثيم يُطبَّق قبل أول رسم للمحتوى فلا وميض
+    try {
+      const prefs = await invoke<Record<string, unknown>>("load_preferences");
+      theme.hydrate(prefs["themeId"]);
+    } catch {
+      theme.hydrate(undefined);
+    }
+    savePrefs = (v) => void invoke("save_preferences", { value: v });
 
     session = new EditorSession({
       editor,
@@ -104,6 +129,10 @@
       }
     }
 
+    if (await invoke<boolean>("gallery_mode")) {
+      gallery = true;
+    }
+
     if (await invoke<boolean>("demo_mode")) {
       const { buildLongDocument } = await import("./dev/corpus");
       const doc: Block[] = buildLongDocument(20000);
@@ -120,6 +149,9 @@
   });
 </script>
 
+{#if gallery}
+  <Gallery />
+{:else}
 <div class="titlebar" data-tauri-drag-region>
   <span class="title">{title}</span>
   <div class="save"><SaveStatus state={saveState} /></div>
@@ -135,9 +167,21 @@
   <div class="count">{words(count)}</div>
 {/if}
 
+<!-- مبدّل الثيم — مؤقت حتى تصل الإعدادات في المرحلة ٦ -->
+<div class="themes">
+  {#each THEMES as t (t.id)}
+    <button
+      type="button" class="tchip" class:on={theme.id === t.id}
+      data-theme-switch={t.id} aria-pressed={theme.id === t.id}
+      onclick={() => pickTheme(t.id as ThemeId)}
+    >{t.name}</button>
+  {/each}
+</div>
+{/if}
+
 <style>
   .titlebar {
-    height: var(--titlebar-h);
+    height: var(--size-titlebar);
     display: grid;
     grid-template-columns: 1fr auto 1fr;
     align-items: center;
@@ -147,7 +191,8 @@
   }
   .title {
     grid-column: 2;
-    font-size: 13px;
+    font: var(--text-ui-08);
+    letter-spacing: 0;
     color: var(--text-muted);
     max-width: 40ch;
     overflow: hidden;
@@ -166,7 +211,7 @@
     flex: 1 1 auto;
     overflow-y: auto;
     display: grid;
-    grid-template-columns: var(--sheet-w);
+    grid-template-columns: var(--size-sheet);
     justify-content: center;
     align-content: stretch;
     background: var(--surface-canvas);
@@ -174,21 +219,50 @@
 
   .sheet {
     min-height: 100%;
-    padding-inline: var(--sheet-pad);
+    padding-inline: var(--size-sheet-pad);
     padding-block: 80px 40vh;
     background: var(--surface-paper);
   }
 
   .column {
-    max-width: var(--column-w);
+    max-width: var(--size-column);
     margin-inline: auto;
+  }
+
+  .themes {
+    position: absolute;
+    inset-block-end: var(--space-012);
+    inset-inline-end: var(--space-020);
+    display: flex;
+    gap: var(--space-004);
+  }
+  .tchip {
+    font: var(--text-ui-10);
+    letter-spacing: 0;
+    padding: var(--space-004) var(--space-008);
+    min-block-size: var(--size-btn-sm);
+    border-radius: var(--radius-sm);
+    border: 1px solid var(--border-control);
+    background: var(--surface-paper);
+    color: var(--text-secondary);
+    cursor: pointer;
+  }
+  .tchip.on {
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+    border-color: var(--accent-graphic);
+  }
+  .tchip:focus-visible {
+    outline: var(--size-focus-ring) solid var(--accent-graphic);
+    outline-offset: var(--size-focus-offset);
   }
 
   .count {
     position: absolute;
     inset-block-end: 16px;
     inset-inline-start: 20px;
-    font-size: 12px;
+    font: var(--text-ui-09);
+    letter-spacing: 0;
     color: var(--text-muted);
     pointer-events: none;
   }

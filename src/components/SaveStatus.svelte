@@ -62,8 +62,9 @@
   .status {
     display: flex;
     align-items: center;
-    gap: 6px;
-    font-size: 12px;
+    gap: var(--space-008);
+    font: var(--text-ui-09);
+    letter-spacing: 0;
     color: var(--text-muted);
     /* الحالة المستقرة خافتة: لا تطلب انتباهًا في الظروف الطبيعية */
     transition: opacity 200ms ease;
@@ -75,7 +76,7 @@
 
   /* تعذّر الحفظ وحده يرفع البروز — ومعه أيقونة ونص، لا لون وحده */
   .status.failed {
-    color: var(--state-critical, #a3341f);
+    color: var(--state-critical);
   }
 
   .icon {

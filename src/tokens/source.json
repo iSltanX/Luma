@@ -1,0 +1,356 @@
+{
+  "_": "مصدر الرموز الوحيد — مستخرج من متغيّرات Figma. لا يُحرَّر يدويًا إلا بمزامنة مع الملف.",
+  "figmaFile": "7CDWsUiMz0xae1CRwvpmPY",
+  "themes": [
+    {
+      "id": "paper",
+      "name": "ورق · Paper"
+    },
+    {
+      "id": "mist",
+      "name": "ضباب · Mist"
+    },
+    {
+      "id": "sage",
+      "name": "مريمية · Sage"
+    },
+    {
+      "id": "lavender",
+      "name": "خزامى · Lavender"
+    },
+    {
+      "id": "midnight",
+      "name": "ليل · Midnight"
+    }
+  ],
+  "colors": {
+    "surface/paper": {
+      "paper": "#fffbf3",
+      "mist": "#f7fdff",
+      "sage": "#f9fef9",
+      "lavender": "#fdfbff",
+      "midnight": "#191d24"
+    },
+    "surface/canvas": {
+      "paper": "#fcf5ed",
+      "mist": "#f1f7fb",
+      "sage": "#f3f8f3",
+      "lavender": "#f7f5fb",
+      "midnight": "#13161c"
+    },
+    "surface/raised": {
+      "paper": "#f5eee6",
+      "mist": "#eaf0f4",
+      "sage": "#ecf1ec",
+      "lavender": "#f0eef4",
+      "midnight": "#212630"
+    },
+    "surface/sunken": {
+      "paper": "#eee7df",
+      "mist": "#e3e9ed",
+      "sage": "#e5eae5",
+      "lavender": "#e9e7ed",
+      "midnight": "#0d1014"
+    },
+    "border/subtle": {
+      "paper": "#e3dcd4",
+      "mist": "#d8dee2",
+      "sage": "#dadfda",
+      "lavender": "#dedce2",
+      "midnight": "#2c313b"
+    },
+    "border/strong": {
+      "paper": "#ccc5bd",
+      "mist": "#c1c7cb",
+      "sage": "#c3c7c3",
+      "lavender": "#c7c5cb",
+      "midnight": "#434a57"
+    },
+    "border/control": {
+      "paper": "#968877",
+      "mist": "#7f8c94",
+      "sage": "#848c84",
+      "lavender": "#8c8894",
+      "midnight": "#6f7784"
+    },
+    "text/primary": {
+      "paper": "#2b241c",
+      "mist": "#202629",
+      "sage": "#222722",
+      "lavender": "#26242a",
+      "midnight": "#e3e7ee"
+    },
+    "text/secondary": {
+      "paper": "#534b43",
+      "mist": "#464d51",
+      "sage": "#494e49",
+      "lavender": "#4e4b52",
+      "midnight": "#a9b1bd"
+    },
+    "text/muted": {
+      "paper": "#6e665d",
+      "mist": "#61686c",
+      "sage": "#646964",
+      "lavender": "#69666d",
+      "midnight": "#8a929e"
+    },
+    "text/on-accent": {
+      "paper": "#fffbf3",
+      "mist": "#f7fdff",
+      "sage": "#f9fef9",
+      "lavender": "#fdfbff",
+      "midnight": "#191d24"
+    },
+    "editor/ink": {
+      "paper": "#2b241c",
+      "mist": "#202629",
+      "sage": "#222722",
+      "lavender": "#26242a",
+      "midnight": "#d4dae2"
+    },
+    "accent/graphic": {
+      "paper": "#b67642",
+      "mist": "#4d8bab",
+      "sage": "#648e6c",
+      "lavender": "#917bab",
+      "midnight": "#a8703c"
+    },
+    "accent/text": {
+      "paper": "#905522",
+      "mist": "#2e6b89",
+      "sage": "#456e4e",
+      "lavender": "#705b88",
+      "midnight": "#c08553"
+    },
+    "accent/subtle": {
+      "paper": "#fbddc8",
+      "mist": "#cfe8f7",
+      "sage": "#d7eada",
+      "lavender": "#e9dff5",
+      "midnight": "#2c2015"
+    },
+    "accent/selection": {
+      "paper": "#f7d3b6",
+      "mist": "#bcdff5",
+      "sage": "#c6e3cb",
+      "lavender": "#ded1ef",
+      "midnight": "#3c2c1c"
+    },
+    "state/positive": {
+      "paper": "#416b4a",
+      "mist": "#416b4a",
+      "sage": "#416b4a",
+      "lavender": "#416b4a",
+      "midnight": "#6d9a76"
+    },
+    "state/positive-bg": {
+      "paper": "#d2e5d5",
+      "mist": "#d2e5d5",
+      "sage": "#d2e5d5",
+      "lavender": "#d2e5d5",
+      "midnight": "#1a2a1f"
+    },
+    "state/caution": {
+      "paper": "#815b1d",
+      "mist": "#815b1d",
+      "sage": "#815b1d",
+      "lavender": "#815b1d",
+      "midnight": "#b08a4c"
+    },
+    "state/caution-bg": {
+      "paper": "#f0dec5",
+      "mist": "#f0dec6",
+      "sage": "#f0dec6",
+      "lavender": "#f0ddc5",
+      "midnight": "#2f2614"
+    },
+    "state/critical": {
+      "paper": "#974d44",
+      "mist": "#974d44",
+      "sage": "#974d44",
+      "lavender": "#974d44",
+      "midnight": "#cb7a70"
+    },
+    "state/critical-bg": {
+      "paper": "#fdd8d2",
+      "mist": "#fdd8d3",
+      "sage": "#fdd8d3",
+      "lavender": "#fdd8d2",
+      "midnight": "#33211f"
+    },
+    "state/info": {
+      "paper": "#386787",
+      "mist": "#386787",
+      "sage": "#386787",
+      "lavender": "#386787",
+      "midnight": "#6796b8"
+    },
+    "state/info-bg": {
+      "paper": "#cfe3f2",
+      "mist": "#cfe3f2",
+      "sage": "#cfe3f2",
+      "lavender": "#cfe3f2",
+      "midnight": "#182935"
+    }
+  },
+  "space": {
+    "002": 2,
+    "004": 4,
+    "008": 8,
+    "012": 12,
+    "016": 16,
+    "020": 20,
+    "024": 24,
+    "032": 32,
+    "040": 40,
+    "048": 48,
+    "064": 64,
+    "080": 80,
+    "096": 96,
+    "128": 128
+  },
+  "radius": {
+    "xs": 4,
+    "sm": 8,
+    "md": 12,
+    "lg": 16,
+    "xl": 24,
+    "full": 999
+  },
+  "text": {
+    "ui-01": [
+      "Cairo",
+      "Bold",
+      700,
+      48,
+      62
+    ],
+    "ui-02": [
+      "Cairo",
+      "Bold",
+      700,
+      36,
+      50
+    ],
+    "ui-03": [
+      "Cairo",
+      "SemiBold",
+      600,
+      28,
+      40
+    ],
+    "ui-04": [
+      "Cairo",
+      "SemiBold",
+      600,
+      22,
+      33
+    ],
+    "ui-05": [
+      "Cairo",
+      "Regular",
+      400,
+      18,
+      31
+    ],
+    "ui-06": [
+      "Cairo",
+      "Regular",
+      400,
+      16,
+      28
+    ],
+    "ui-07": [
+      "Cairo",
+      "Regular",
+      400,
+      14,
+      24
+    ],
+    "ui-08": [
+      "Cairo",
+      "Medium",
+      500,
+      13,
+      20
+    ],
+    "ui-09": [
+      "Cairo",
+      "Regular",
+      400,
+      12,
+      18
+    ],
+    "ui-10": [
+      "Cairo",
+      "Medium",
+      500,
+      12,
+      18
+    ],
+    "editor-title": [
+      "Almarai",
+      "Bold",
+      700,
+      32,
+      48
+    ],
+    "editor-subtitle": [
+      "Almarai",
+      "Bold",
+      700,
+      24,
+      38
+    ],
+    "editor-reading": [
+      "Almarai",
+      "Regular",
+      400,
+      19,
+      36
+    ],
+    "editor-comfort": [
+      "Almarai",
+      "Regular",
+      400,
+      19,
+      40
+    ],
+    "editor-quote": [
+      "Almarai",
+      "Light",
+      300,
+      19,
+      36
+    ],
+    "editor-note": [
+      "Almarai",
+      "Regular",
+      400,
+      15,
+      26
+    ]
+  },
+  "size": {
+    "titlebar": 48,
+    "surfaces-bar": 52,
+    "sheet": 760,
+    "sheet-pad": 60,
+    "column": 640,
+    "column-min": 520,
+    "column-max": 800,
+    "panel": 320,
+    "icon": 16,
+    "hit": 32,
+    "btn-lg": 44,
+    "btn-md": 36,
+    "btn-sm": 28,
+    "toggle-w": 44,
+    "toggle-h": 24,
+    "toggle-knob": 20,
+    "slider-track": 4,
+    "slider-knob": 16,
+    "focus-ring": 2,
+    "focus-offset": 2
+  }
+}

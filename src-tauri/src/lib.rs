@@ -49,6 +49,12 @@ fn selftest_mode() -> bool {
     std::env::var("LUMA_SELFTEST").is_ok_and(|v| v == "1")
 }
 
+/// وضع المعرض — `LUMA_GALLERY=1`. أداة تطوير.
+#[tauri::command]
+fn gallery_mode() -> bool {
+    std::env::var("LUMA_GALLERY").is_ok_and(|v| v == "1")
+}
+
 /// يكتب تقرير الفحص إلى مجلد البيانات. أداة تطوير.
 #[tauri::command]
 fn write_report(json: String) -> Result<String, String> {
@@ -126,6 +132,7 @@ pub fn run() {
             data_dir,
             demo_mode,
             selftest_mode,
+            gallery_mode,
             write_report,
             commands::save_document,
             commands::load_document,

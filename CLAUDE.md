@@ -16,10 +16,11 @@
 
 ## الحالة
 
-المراحل ١ و٢ و٣ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ التلقائي في `src-tauri/src/storage/`.
+المراحل ١ إلى ٤ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ في `src-tauri/src/storage/`، وطبقة الرموز في `src/tokens/`.
 
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
-`src/app.css` رموز مؤقتة — المرحلة ٤ تستبدلها بطبقة مولَّدة.
+طبقة الرموز مولَّدة: `node src/tokens/generate.mjs` بعد أي تغيير في `source.json`.
+مخرجاتها (`tokens.css` و`themes.ts`) **لا تُحرَّر يدويًا**.
 
 ## الحزمة
 
@@ -49,7 +50,8 @@ src/editor/    نواة المحرر — لا تحفظ ولا تعرف المك�
 src/lib/       autosave.ts · session.ts · bidi.ts · fonts.css
 src/components/ SaveStatus.svelte
 src/dev/       ⚠️ أدوات تطوير لا تُشحن
-src/app.css    ⚠️ رموز مؤقتة حتى المرحلة ٤
+src/tokens/    ⚠️ مولَّد: source.json → tokens.css + themes.ts
+src/components/ مكتبة المكونات + الأيقونات الـ٢٢
 src-tauri/     النواة الأصلية — storage/ والنافذة والقائمة والأوامر
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة
 tests/         وحدات + حارس الحدود + e2e/ لـPlaywright
@@ -67,5 +69,6 @@ docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 5. **لا ميزة خارج `Luma.md`** — ولا كيان بيانات لميزة غير معتمدة.
 6. **لا زر حفظ ولا اختصار حفظ يدوي** — الحفظ تلقائي دائم، وكل كتابة ذرّية.
 7. **لا يُستبدل ملف سليم بجزئي** — كل كتابة تمرّ بـ`write_atomic`.
+8. **كل لون رمز ثيم** — ولا `var(--…)` غير معرَّف: كلاهما يسقط صامتًا ويحرسه اختبار.
 
 قبل أي عمل على العربية أو الاتجاه: [docs/arabic-battery.md](docs/arabic-battery.md).

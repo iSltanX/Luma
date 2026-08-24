@@ -1,0 +1,221 @@
+/* ملف مولَّد — لا يُحرَّر يدويًا.
+ * المصدر: src/tokens/source.json (مستخرج من متغيّرات Figma 7CDWsUiMz0xae1CRwvpmPY)
+ * التوليد: node src/tokens/generate.mjs
+ */
+
+:root {
+  --surface-paper: #fffbf3;
+  --surface-canvas: #fcf5ed;
+  --surface-raised: #f5eee6;
+  --surface-sunken: #eee7df;
+  --border-subtle: #e3dcd4;
+  --border-strong: #ccc5bd;
+  --border-control: #968877;
+  --text-primary: #2b241c;
+  --text-secondary: #534b43;
+  --text-muted: #6e665d;
+  --text-on-accent: #fffbf3;
+  --editor-ink: #2b241c;
+  --accent-graphic: #b67642;
+  --accent-text: #905522;
+  --accent-subtle: #fbddc8;
+  --accent-selection: #f7d3b6;
+  --state-positive: #416b4a;
+  --state-positive-bg: #d2e5d5;
+  --state-caution: #815b1d;
+  --state-caution-bg: #f0dec5;
+  --state-critical: #974d44;
+  --state-critical-bg: #fdd8d2;
+  --state-info: #386787;
+  --state-info-bg: #cfe3f2;
+}
+
+[data-theme="mist"] {
+  --surface-paper: #f7fdff;
+  --surface-canvas: #f1f7fb;
+  --surface-raised: #eaf0f4;
+  --surface-sunken: #e3e9ed;
+  --border-subtle: #d8dee2;
+  --border-strong: #c1c7cb;
+  --border-control: #7f8c94;
+  --text-primary: #202629;
+  --text-secondary: #464d51;
+  --text-muted: #61686c;
+  --text-on-accent: #f7fdff;
+  --editor-ink: #202629;
+  --accent-graphic: #4d8bab;
+  --accent-text: #2e6b89;
+  --accent-subtle: #cfe8f7;
+  --accent-selection: #bcdff5;
+  --state-positive: #416b4a;
+  --state-positive-bg: #d2e5d5;
+  --state-caution: #815b1d;
+  --state-caution-bg: #f0dec6;
+  --state-critical: #974d44;
+  --state-critical-bg: #fdd8d3;
+  --state-info: #386787;
+  --state-info-bg: #cfe3f2;
+}
+
+[data-theme="sage"] {
+  --surface-paper: #f9fef9;
+  --surface-canvas: #f3f8f3;
+  --surface-raised: #ecf1ec;
+  --surface-sunken: #e5eae5;
+  --border-subtle: #dadfda;
+  --border-strong: #c3c7c3;
+  --border-control: #848c84;
+  --text-primary: #222722;
+  --text-secondary: #494e49;
+  --text-muted: #646964;
+  --text-on-accent: #f9fef9;
+  --editor-ink: #222722;
+  --accent-graphic: #648e6c;
+  --accent-text: #456e4e;
+  --accent-subtle: #d7eada;
+  --accent-selection: #c6e3cb;
+  --state-positive: #416b4a;
+  --state-positive-bg: #d2e5d5;
+  --state-caution: #815b1d;
+  --state-caution-bg: #f0dec6;
+  --state-critical: #974d44;
+  --state-critical-bg: #fdd8d3;
+  --state-info: #386787;
+  --state-info-bg: #cfe3f2;
+}
+
+[data-theme="lavender"] {
+  --surface-paper: #fdfbff;
+  --surface-canvas: #f7f5fb;
+  --surface-raised: #f0eef4;
+  --surface-sunken: #e9e7ed;
+  --border-subtle: #dedce2;
+  --border-strong: #c7c5cb;
+  --border-control: #8c8894;
+  --text-primary: #26242a;
+  --text-secondary: #4e4b52;
+  --text-muted: #69666d;
+  --text-on-accent: #fdfbff;
+  --editor-ink: #26242a;
+  --accent-graphic: #917bab;
+  --accent-text: #705b88;
+  --accent-subtle: #e9dff5;
+  --accent-selection: #ded1ef;
+  --state-positive: #416b4a;
+  --state-positive-bg: #d2e5d5;
+  --state-caution: #815b1d;
+  --state-caution-bg: #f0ddc5;
+  --state-critical: #974d44;
+  --state-critical-bg: #fdd8d2;
+  --state-info: #386787;
+  --state-info-bg: #cfe3f2;
+}
+
+[data-theme="midnight"] {
+  --surface-paper: #191d24;
+  --surface-canvas: #13161c;
+  --surface-raised: #212630;
+  --surface-sunken: #0d1014;
+  --border-subtle: #2c313b;
+  --border-strong: #434a57;
+  --border-control: #6f7784;
+  --text-primary: #e3e7ee;
+  --text-secondary: #a9b1bd;
+  --text-muted: #8a929e;
+  --text-on-accent: #191d24;
+  --editor-ink: #d4dae2;
+  --accent-graphic: #a8703c;
+  --accent-text: #c08553;
+  --accent-subtle: #2c2015;
+  --accent-selection: #3c2c1c;
+  --state-positive: #6d9a76;
+  --state-positive-bg: #1a2a1f;
+  --state-caution: #b08a4c;
+  --state-caution-bg: #2f2614;
+  --state-critical: #cb7a70;
+  --state-critical-bg: #33211f;
+  --state-info: #6796b8;
+  --state-info-bg: #182935;
+}
+
+:root {
+  --space-128: 128px;
+  --space-002: 2px;
+  --space-004: 4px;
+  --space-008: 8px;
+  --space-012: 12px;
+  --space-016: 16px;
+  --space-020: 20px;
+  --space-024: 24px;
+  --space-032: 32px;
+  --space-040: 40px;
+  --space-048: 48px;
+  --space-064: 64px;
+  --space-080: 80px;
+  --space-096: 96px;
+
+  --radius-xs: 4px;
+  --radius-sm: 8px;
+  --radius-md: 12px;
+  --radius-lg: 16px;
+  --radius-xl: 24px;
+  --radius-full: 9999px;
+
+  --size-titlebar: 48px;
+  --size-surfaces-bar: 52px;
+  --size-sheet: 760px;
+  --size-sheet-pad: 60px;
+  --size-column: 640px;
+  --size-column-min: 520px;
+  --size-column-max: 800px;
+  --size-panel: 320px;
+  --size-icon: 16px;
+  --size-hit: 32px;
+  --size-btn-lg: 44px;
+  --size-btn-md: 36px;
+  --size-btn-sm: 28px;
+  --size-toggle-w: 44px;
+  --size-toggle-h: 24px;
+  --size-toggle-knob: 20px;
+  --size-slider-track: 4px;
+  --size-slider-knob: 16px;
+  --size-focus-ring: 2px;
+  --size-focus-offset: 2px;
+}
+
+:root {
+  --text-ui-01: 700 48px/62px "Cairo", system-ui, sans-serif;
+  --text-ui-02: 700 36px/50px "Cairo", system-ui, sans-serif;
+  --text-ui-03: 600 28px/40px "Cairo", system-ui, sans-serif;
+  --text-ui-04: 600 22px/33px "Cairo", system-ui, sans-serif;
+  --text-ui-05: 400 18px/31px "Cairo", system-ui, sans-serif;
+  --text-ui-06: 400 16px/28px "Cairo", system-ui, sans-serif;
+  --text-ui-07: 400 14px/24px "Cairo", system-ui, sans-serif;
+  --text-ui-08: 500 13px/20px "Cairo", system-ui, sans-serif;
+  --text-ui-09: 400 12px/18px "Cairo", system-ui, sans-serif;
+  --text-ui-10: 500 12px/18px "Cairo", system-ui, sans-serif;
+  --text-editor-title: 700 32px/48px "Almarai", system-ui, sans-serif;
+  --text-editor-subtitle: 700 24px/38px "Almarai", system-ui, sans-serif;
+  --text-editor-reading: 400 19px/36px "Almarai", system-ui, sans-serif;
+  --text-editor-comfort: 400 19px/40px "Almarai", system-ui, sans-serif;
+  --text-editor-quote: 300 19px/36px "Almarai", system-ui, sans-serif;
+  --text-editor-note: 400 15px/26px "Almarai", system-ui, sans-serif;
+}
+
+/* أصناف جاهزة لأنماط النص — التتبّع صفر دائمًا */
+.t-ui-01 { font: var(--text-ui-01); letter-spacing: 0; }
+.t-ui-02 { font: var(--text-ui-02); letter-spacing: 0; }
+.t-ui-03 { font: var(--text-ui-03); letter-spacing: 0; }
+.t-ui-04 { font: var(--text-ui-04); letter-spacing: 0; }
+.t-ui-05 { font: var(--text-ui-05); letter-spacing: 0; }
+.t-ui-06 { font: var(--text-ui-06); letter-spacing: 0; }
+.t-ui-07 { font: var(--text-ui-07); letter-spacing: 0; }
+.t-ui-08 { font: var(--text-ui-08); letter-spacing: 0; }
+.t-ui-09 { font: var(--text-ui-09); letter-spacing: 0; }
+.t-ui-10 { font: var(--text-ui-10); letter-spacing: 0; }
+.t-editor-title { font: var(--text-editor-title); letter-spacing: 0; }
+.t-editor-subtitle { font: var(--text-editor-subtitle); letter-spacing: 0; }
+.t-editor-reading { font: var(--text-editor-reading); letter-spacing: 0; }
+.t-editor-comfort { font: var(--text-editor-comfort); letter-spacing: 0; }
+.t-editor-quote { font: var(--text-editor-quote); letter-spacing: 0; }
+.t-editor-note { font: var(--text-editor-note); letter-spacing: 0; }

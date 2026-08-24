@@ -1,5 +1,4 @@
-/* أنماط مساحة الكتابة — مشتركة بين المرشحين الثلاثة ليكون القياس عادلًا.
-   القيم من أنماط النص في Figma: محرر · Editor/01 و03. */
+/* مظهر مساحة الكتابة — أنماط النص من طبقة الرموز، لا قيم مكتوبة. */
 
 .luma-editor {
   /* مساحة الكتابة وحدها قابلة للتحديد */
@@ -7,43 +6,35 @@
   user-select: text;
   outline: none;
 
-  font-family: "Almarai", serif;
+  /* محرر · Editor/03 نص القراءة */
+  font: var(--text-editor-reading);
   color: var(--editor-ink);
-
-  /* محرر · Editor/03 نص القراءة — Almarai Regular ١٩/٣٦ */
-  font-size: 19px;
-  line-height: 36px;
-
-  /* التتبّع صفر دائمًا على العربية */
   letter-spacing: 0;
 }
 
 .luma-editor :where(p) {
-  margin: 0 0 20px;
+  margin: 0 0 var(--space-020);
 }
 
-/* محرر · Editor/01 عنوان المستند — Almarai Bold ٣٢/٤٨ */
+/* محرر · Editor/01 عنوان المستند */
 .luma-editor :where(h1) {
-  font-size: 32px;
-  line-height: 48px;
-  font-weight: 700;
-  margin: 0 0 24px;
+  font: var(--text-editor-title);
   letter-spacing: 0;
+  margin: 0 0 var(--space-024);
 }
 
+/* محرر · Editor/02 عنوان فرعي */
 .luma-editor :where(h2) {
-  font-size: 24px;
-  line-height: 40px;
-  font-weight: 700;
-  margin: 32px 0 16px;
+  font: var(--text-editor-subtitle);
   letter-spacing: 0;
+  margin: var(--space-032) 0 var(--space-016);
 }
 
-/* وضع التركيز: لون رمز مقروء، لا شفافية عشوائية — §٧ */
+/* وضع التركيز: لون رمز مقروء، لا شفافية عشوائية — §٧ **ثابت** */
 .luma-editor :where(.luma-dimmed) {
   color: var(--text-muted);
 }
 
 .luma-editor ::selection {
-  background: #e8d5bf;
+  background: var(--accent-selection);
 }
