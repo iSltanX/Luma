@@ -2,7 +2,7 @@
   "$schema": "https://schema.tauri.app/config/2",
   "productName": "Luma",
   "version": "0.1.0",
-  "identifier": "dev.luma.app",
+  "identifier": "com.sultanart.luma",
   "build": {
     "beforeDevCommand": "npm run dev",
     "devUrl": "http://localhost:5173",
@@ -50,7 +50,13 @@
     "shortDescription": "Write Without Noise",
     "longDescription": "محرر كتابة هادئ للكاتب العربي على macOS.",
     "macOS": {
-      "minimumSystemVersion": "13.0"
+      "minimumSystemVersion": "13.0",
+      "hardenedRuntime": true,
+      "entitlements": "entitlements.plist",
+      "files": {
+        "Resources/fonts/OFL.txt": "../public/fonts/OFL.txt",
+        "Resources/fonts/NOTICE.md": "../public/fonts/NOTICE.md"
+      }
     }
   }
 }

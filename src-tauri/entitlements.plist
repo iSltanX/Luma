@@ -1,0 +1,44 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  استحقاقات Luma — **الحدّ الأدنى الذي يحتاجه المنتج فعلًا**، وهو لا شيء.
+
+  `PLAN.md` المرحلة ٨ توجب «ملف استحقاقات بالحد الأدنى». والحدّ الأدنى
+  هنا فارغ بقرار مسنود، لا بسهو: الملف موجود ليقول **إننا لا نطلب شيئًا**،
+  فغيابُه يُقرأ نسيانًا وحضورُه فارغًا يُقرأ نيّة.
+
+  ما فُحص ولم يُطلب، ولماذا:
+
+  · `com.apple.security.cs.allow-jit`
+    و`allow-unsigned-executable-memory`
+      لا يحتاجهما WKWebView: محرك JavaScript يعمل في عملية محتوى
+      **يوفّرها النظام** (`com.apple.WebKit.WebContent`) باستحقاقاتها
+      هي، لا في عمليتنا. طلبُهما توسيعُ سطح هجوم بلا مقابل.
+
+  · `com.apple.security.cs.disable-library-validation`
+      لا مكتبات طرف ثالث تُحمَّل وقت التشغيل. `core-text` و
+      `core-foundation` أطر نظام، وتُربط ساكنًا.
+
+  · `com.apple.security.files.user-selected.read-write`
+      استحقاق صندوق رمل (`App Sandbox`)، وLuma **ليست مصنَّدقة**:
+      التوزيع عبر `Developer ID` خارج المتجر. لوحة اختيار الخط
+      (`NSOpenPanel`) تعمل بلا استحقاق حين لا يوجد صندوق رمل.
+
+  · `com.apple.security.network.client`
+      **لا شبكة في Luma إطلاقًا.** الخطوط مدمجة، ولا تحديث تلقائي
+      ([ADR ٠٠١٣](../docs/decisions/0013-auto-update.md))، ولا قياس
+      تشخيصي. وسياسة CSP في `tauri.conf.json` تمنع الاتصال أصلًا.
+
+  · الميكروفون (`com.apple.security.device.audio-input`)
+      الإملاء والصوت مؤجَّلان (`Luma.md` §١١)، ولا يُطلب استحقاق لميزة
+      غير موجودة — وهي قاعدة الواجهة نفسها مطبَّقة على الأذونات.
+
+  مسار البيانات `~/Library/Application Support/Luma/` لا يحتاج استحقاقًا
+  خارج صندوق الرمل: هو مجلد المستخدم نفسه.
+
+  **أي إضافة هنا تحتاج سببًا مكتوبًا وADR.** استحقاقٌ يُضاف «احتياطًا»
+  يبقى إلى الأبد ويوسّع ما يستطيعه المهاجم إن اختُرقت العملية.
+-->
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict/>
+</plist>

@@ -14,6 +14,8 @@
     "check:rust": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check",
     "test:rust": "cd src-tauri && cargo test",
     "selftest": "./scripts/selftest.sh",
+    "release": "./scripts/release.sh",
+    "release:adhoc": "./scripts/release.sh --adhoc",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "verify": "npm run check && npm run check:rust && npm run test && npm run test:rust",

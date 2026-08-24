@@ -15,9 +15,10 @@ use tauri::{Emitter, Manager, Runtime, WindowEvent};
 
 /// مسار بيانات Luma.
 ///
-/// **مثبَّت صراحةً ولا يُشتق من معرّف الحزمة.** معرّف الحزمة مؤقت
-/// (`dev.luma.app`) ويُستبدل بالنهائي في المرحلة ٨؛ لو كان المسار
-/// مشتقًّا منه لضاعت بيانات المستخدم عند الاستبدال.
+/// **مثبَّت صراحةً ولا يُشتق من معرّف الحزمة.** كان المعرّف مؤقتًا
+/// (`dev.luma.app`) واستُبدل في المرحلة ٨ بـ`com.sultanart.luma`
+/// ([ADR ٠٠١٤](../../docs/decisions/0014-bundle-identifier.md)) — ولو
+/// كان المسار مشتقًّا منه لضاعت بيانات كل من كتب قبل الاستبدال.
 /// المرجع: `IMPLEMENTATION.md` §٤.
 pub fn luma_data_dir() -> Option<PathBuf> {
     let home = std::env::var_os("HOME")?;
@@ -377,10 +378,14 @@ mod tests {
         // القاعدة: المسار ينتهي بـLuma، ولا يحمل معرّف الحزمة إطلاقًا.
         assert!(dir.ends_with("Luma"), "المسار يجب أن ينتهي بـLuma: {dir:?}");
         let s = dir.to_string_lossy();
-        assert!(
-            !s.contains("dev.luma.app"),
-            "المسار يجب ألا يُشتق من معرّف الحزمة: {s}"
-        );
+        // لا المؤقت ولا النهائي: القاعدة أن المسار **لا يُشتق** من
+        // المعرّف أصلًا، لا أن يتجنّب قيمة بعينها.
+        for id in ["dev.luma.app", "com.sultanart.luma"] {
+            assert!(
+                !s.contains(id),
+                "المسار يجب ألا يُشتق من معرّف الحزمة ({id}): {s}"
+            );
+        }
         assert!(
             s.contains("Application Support"),
             "المسار خارج المكان المتوقع: {s}"

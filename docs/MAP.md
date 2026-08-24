@@ -42,6 +42,11 @@
 | أُخرج شجرة من مسار التركيز | سمة `inert` على جذرها | §١٣ — ومعه حاجزٌ ثانٍ لا يعتمد عليها |
 | أضيف زوج لون أو أغيّر حالة نشِطة | المكوّن + `tests/tokens.test.ts` | الحارس يشتقّ الأزواج من الكود ويسقط على غير المفروض |
 | أرفع أدنى إصدار macOS | `tauri.conf.json` | [ADR ٠٠١٢](decisions/0012-minimum-macos.md) — **جردٌ جديد لخصائص المنصة أولًا** |
+| أمسّ معرّف الحزمة | `tauri.conf.json` → `identifier` | [ADR ٠٠١٤](decisions/0014-bundle-identifier.md) — **لا يتغيّر بعد الإطلاق** |
+| أضيف استحقاقًا | `src-tauri/entitlements.plist` | الملف فارغ بقرار — أي مفتاح يحتاج سببًا وADR |
+| أضيف اتصال شبكة | ثلاث طبقات معًا | [ADR ٠٠١٥](decisions/0015-no-telemetry.md) — **لا شبكة**، ويحرسها اختبار |
+| أوقّع أو أصدّق | `scripts/release.sh` | يحتاج شهادة `Developer ID Application` |
+| أمسّ ترخيص خط | `public/fonts/NOTICE.md` | OFL توجب مرافقة الرخصة للنسخة |
 | أمسّ الإطار أو تخطيط الشاشة | `src/components/EditorShell.svelte` | `IMPLEMENTATION.md` §١٠ — **يُبنى مرة واحدة** |
 | أضيف لوحة جانبية أو مدخلًا لها | `src/lib/surfaces.ts` + `src/components/*Panel.svelte` | §١٠ — مدخل واحد وزر إغلاق وEsc |
 | أمسّ المكتبة أو البحث فيها | `src/components/LibraryPanel.svelte` + `src/lib/library.ts` | `Luma.md` §٦ — [ADR ٠٠٠٨](decisions/0008-shell-and-surfaces.md) |

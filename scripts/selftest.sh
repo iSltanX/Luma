@@ -17,7 +17,7 @@ set -uo pipefail
 
 APP="./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/luma"
 REPORT="$HOME/Library/Application Support/Luma/selftest-report.json"
-PHASE="${LUMA_PHASE:-7}"
+PHASE="${LUMA_PHASE:-8}"
 
 if [ ! -x "$APP" ]; then
   echo "لا توجد نسخة مبنية: $APP"

@@ -1,0 +1,178 @@
+/**
+ * حرّاس الإصدار — المرحلة ٨.
+ *
+ * ما يُكتب مرة واحدة ولا يُراجَع بعدها هو أوّل ما ينحرف. هذه الحرّاس
+ * تمنع الانحراف الصامت في ثلاثة أشياء يصعب اكتشاف خطئها بعد الإطلاق:
+ * معرّف الحزمة، والاستحقاقات، وسطح الاتصال بالشبكة.
+ */
+
+import { describe, it, expect } from "vitest";
+import { readFileSync, existsSync } from "node:fs";
+import { join } from "node:path";
+
+const ROOT = process.cwd();
+const TAURI = join(ROOT, "src-tauri");
+const CONF = JSON.parse(
+  readFileSync(join(TAURI, "tauri.conf.json"), "utf8"),
+) as {
+  identifier: string;
+  version: string;
+  app: { security: { csp: string } };
+  bundle: {
+    targets: string[];
+    macOS: {
+      minimumSystemVersion: string;
+      hardenedRuntime?: boolean;
+      entitlements?: string;
+      files?: Record<string, string>;
+    };
+  };
+};
+
+/** المعرّف النهائي — [ADR ٠٠١٤](../docs/decisions/0014-bundle-identifier.md). */
+const IDENTIFIER = "com.sultanart.luma";
+
+describe("معرّف الحزمة", () => {
+  it("هو المعرّف النهائي لا المؤقت", () => {
+    expect(
+      CONF.identifier,
+      "المعرّف يُثبَّت مرة واحدة ولا يتغيّر — تغييره يفقد ربط النظام بالتطبيق",
+    ).toBe(IDENTIFIER);
+  });
+
+  it("لا أثر للمعرّف المؤقت في إعدادات الحزمة ولا في النواة", () => {
+    const files = [
+      join(TAURI, "tauri.conf.json"),
+      join(TAURI, "entitlements.plist"),
+      join(TAURI, "capabilities", "default.json"),
+    ];
+    for (const f of files) {
+      if (!existsSync(f)) continue;
+      expect(
+        readFileSync(f, "utf8").includes("dev.luma.app"),
+        `${f}: بقي المعرّف المؤقت`,
+      ).toBe(false);
+    }
+  });
+
+  it("مسار البيانات لا يُشتق من المعرّف — يحرسه اختبار في النواة أيضًا", () => {
+    const lib = readFileSync(join(TAURI, "src", "lib.rs"), "utf8");
+    expect(lib).toContain("Application Support");
+    expect(lib).toContain('.join("Luma")');
+  });
+});
+
+describe("التوقيع والاستحقاقات", () => {
+  it("Hardened Runtime مفعَّل صراحةً", () => {
+    // مُفعَّل افتراضًا في Tauri، والتصريح به يمنع أن يُطفأ سهوًا
+    expect(
+      CONF.bundle.macOS.hardenedRuntime,
+      "التصديق يرفض حزمةً بلا Hardened Runtime",
+    ).toBe(true);
+  });
+
+  it("ملف الاستحقاقات مُعلَن وموجود", () => {
+    expect(CONF.bundle.macOS.entitlements).toBe("entitlements.plist");
+    expect(existsSync(join(TAURI, "entitlements.plist"))).toBe(true);
+  });
+
+  it("لا استحقاق واحد مطلوب — والملف يقول ذلك صراحةً", () => {
+    const plist = readFileSync(join(TAURI, "entitlements.plist"), "utf8");
+    // `<dict/>` أو `<dict></dict>` فارغة: لا مفتاح واحد
+    expect(
+      /<key>/.test(plist),
+      "أُضيف استحقاق — يحتاج سببًا مكتوبًا وADR (§١١ الخصوصية)",
+    ).toBe(false);
+    expect(plist).toContain("<dict/>");
+  });
+
+  it("أدنى إصدار macOS مطابق لـADR ٠٠١٢", () => {
+    expect(CONF.bundle.macOS.minimumSystemVersion).toBe("13.0");
+  });
+});
+
+describe("سطح الشبكة", () => {
+  // §١١ **ثابت**: «تخزين على الجهاز، بلا حساب وبلا مزامنة»، ولا قياس
+  // تشخيصي. القاعدة تُفرض في ثلاث طبقات، وهذا يحرس اثنتين منها.
+  it("سياسة CSP تمنع أي اتصال خارج جسر النواة", () => {
+    const csp = CONF.app.security.csp;
+    const connect = csp.match(/connect-src ([^;]+)/)?.[1] ?? "";
+    for (const src of connect.trim().split(/\s+/)) {
+      expect(
+        /^(ipc:|http:\/\/ipc\.localhost)$/.test(src),
+        `connect-src يسمح بـ«${src}» — وLuma بلا شبكة`,
+      ).toBe(true);
+    }
+  });
+
+  it("لا اعتمادية شبكة في النواة", () => {
+    const cargo = readFileSync(join(TAURI, "Cargo.toml"), "utf8");
+    for (const crate of ["reqwest", "hyper", "ureq", "tokio-tungstenite"]) {
+      expect(cargo.includes(`\n${crate}`), `${crate} في الاعتماديات`).toBe(
+        false,
+      );
+    }
+  });
+
+  it("لا إضافة تحديث تلقائي — القرار مؤجَّل بـADR ٠٠١٣", () => {
+    const cargo = readFileSync(join(TAURI, "Cargo.toml"), "utf8");
+    expect(
+      cargo.includes("tauri-plugin-updater"),
+      "أُضيفت إضافة التحديث — راجِع ADR ٠٠١٣ قبل ذلك",
+    ).toBe(false);
+  });
+});
+
+describe("تراخيص الخطوط", () => {
+  // `Luma.md` §١١: «سياسة الترخيص للخطوط المستوردة بيانٌ قانوني يُكتب
+  // قبل الإطلاق». وOFL 1.1 توجب أن ترافق النسخةَ حقوقُ النشر ونصُّ
+  // الرخصة — والخطّان المدمجان تحتها.
+  it("نصّ الرخصة والبيان موجودان مع الخطوط", () => {
+    for (const f of ["OFL.txt", "NOTICE.md"]) {
+      expect(
+        existsSync(join(ROOT, "public", "fonts", f)),
+        `${f} مفقود — إعادة توزيع خط OFL بلا رخصته مخالفة`,
+      ).toBe(true);
+    }
+    const ofl = readFileSync(join(ROOT, "public", "fonts", "OFL.txt"), "utf8");
+    expect(ofl).toContain("SIL OPEN FONT LICENSE Version 1.1");
+    expect(ofl).toContain("PERMISSION & CONDITIONS");
+  });
+
+  it("حقوق النشر منقولة من ملفات الخطوط لا من موقع", () => {
+    const notice = readFileSync(join(ROOT, "public", "fonts", "NOTICE.md"), "utf8");
+    // السطران كما يقرؤهما جدول `name` في الملفين المشحونين
+    expect(notice).toContain("Copyright (c) 2019 by Almarai");
+    expect(notice).toContain("Copyright 2009 The Cairo Project Authors");
+  });
+
+  it("يُشحنان **ملفين حقيقيين** في الحزمة لا مضمَّنين في الثنائي", () => {
+    // Tauri يضمّن `dist` داخل الثنائي، فالرخصة هناك لا يقرؤها أحد.
+    const files = CONF.bundle.macOS.files ?? {};
+    expect(files["Resources/fonts/OFL.txt"]).toBeTruthy();
+    expect(files["Resources/fonts/NOTICE.md"]).toBeTruthy();
+  });
+});
+
+describe("الإصدار وسجل التغييرات", () => {
+  it("النسخة في package.json و tauri.conf.json واحدة", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+      version: string;
+    };
+    expect(
+      CONF.version,
+      "نسختان مختلفتان: المستخدم يرى واحدة والحزمة تحمل أخرى",
+    ).toBe(pkg.version);
+  });
+
+  it("سجل التغييرات يذكر النسخة الحالية", () => {
+    const log = readFileSync(join(ROOT, "CHANGELOG.md"), "utf8");
+    expect(log, `النسخة ${CONF.version} ليست في CHANGELOG`).toContain(
+      CONF.version,
+    );
+  });
+
+  it("DMG هدفٌ في البناء", () => {
+    expect(CONF.bundle.targets).toContain("dmg");
+  });
+});

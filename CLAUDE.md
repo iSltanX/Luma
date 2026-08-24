@@ -21,13 +21,20 @@
 والمرحلة ٧ أضافت ميزانيات أداء **مقيسة ومبوَّبة** (`src/dev/budgets.ts`)،
 وحزمة وصول (`tests/e2e/access.spec.ts`)، وثلاث وثائق تحقق في `docs/`.
 
+**المرحلة ٨ جارية ومحجوبة جزئيًا.** أُنجز فيها كل ما لا يحتاج شهادة
+توزيع: المعرّف النهائي، وHardened Runtime، واستحقاقات فارغة بقرار،
+وسكربت التوقيع والتصديق، وتراخيص الخطوط، وسجل التغييرات، وثلاثة ADR.
+**ويبقى معلَّقًا على عضوية برنامج مطوّري Apple:** التوقيع بـ`Developer
+ID`، والتصديق، والتثبيت على حساب نظيف — وهي معيار اكتمال المرحلة.
+التفصيل في [قائمة التحقق](docs/release-checklist.md) §٤.
+
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
 طبقة الرموز مولَّدة: `node src/tokens/generate.mjs` بعد أي تغيير في `source.json`.
 مخرجاتها (`tokens.css` و`themes.ts`) **لا تُحرَّر يدويًا**.
 
 ## الحزمة
 
-Tauri 2 (نواة Rust + WKWebView) · Vite + Svelte 5 + TypeScript · ProseMirror · معرّف مؤقت `dev.luma.app`.
+Tauri 2 (نواة Rust + WKWebView) · Vite + Svelte 5 + TypeScript · ProseMirror · معرّف الحزمة `com.sultanart.luma` — [ADR ٠٠١٤](docs/decisions/0014-bundle-identifier.md)، **ولا يتغيّر**.
 
 ## الأوامر
 
@@ -37,6 +44,8 @@ npm run app:build    # بناء Luma.app
 npm run verify       # أنواع + clippy + fmt + اختبارات الوحدة + اختبارات Rust
 npm run test:e2e     # Playwright — كشف انحدار على طبقة الويب
 npm run selftest     # الفحص الذاتي داخل Luma.app — **بوابة تسقط**
+npm run release:adhoc # توقيع محلي بقيود التصديق — بلا شهادة توزيع
+npm run release       # توقيع Developer ID ثم تصديق ثم DMG
 npm run site         # توليد صفحة حالة المشروع (docs/site/)
 ```
 
