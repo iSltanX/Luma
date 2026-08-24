@@ -123,7 +123,11 @@ export class EditorSession {
    */
   async open(id: string): Promise<void> {
     if (id === this.documentId) return;
-    await this.flush();
+    // «الحفظ أولًا لا بالتوازي: لو فشل، لا يُستبدل شيء» — والجواب
+    // يُقرأ الآن بدل أن يُفترض.
+    if (!(await this.flush())) {
+      throw new Error("تعذّر حفظ المستند الحالي، فلم يُفتح غيره");
+    }
 
     const doc = await this.bridge.load(id);
     this.documentId = doc.id;
@@ -189,9 +193,14 @@ export class EditorSession {
     return "بدون عنوان";
   }
 
-  /** كتابة فورية — فقد التركيز، الإغلاق، تبديل المستند. */
-  async flush(): Promise<void> {
-    await this.autosave.flush();
+  /**
+   * كتابة فورية — فقد التركيز، الإغلاق، تبديل المستند.
+   *
+   * **يُبلّغ**: `true` إن وصل كل شيء القرص. من ينوي استبدال المحتوى
+   * بعده مُلزَمٌ بقراءة الجواب — §٥ **ثابت**.
+   */
+  flush(): Promise<boolean> {
+    return this.autosave.flush();
   }
 
   dispose(): void {

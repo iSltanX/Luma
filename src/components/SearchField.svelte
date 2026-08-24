@@ -77,6 +77,10 @@
   input {
     flex: 1 1 auto;
     min-inline-size: 0;
+    /* **المدخل يملأ ارتفاع الحقل.** بدونه صندوقه ٢٤px داخل حقل يبدو
+       ٣٦: الحاوية `div` لا `label`، فالنقر فوق الحشوة لا يصل المدخل
+       ولا يركّزه. مُقاسًا: ٢٣٧×٢٤ — تحت عتبة ٣٢ في §١٣. */
+    align-self: stretch;
     font: var(--text-ui-07);
     letter-spacing: 0;
     color: var(--text-primary);

@@ -1,12 +1,26 @@
 <script lang="ts">
-  /** زر اختيار — قيمتان × ثلاث حالات (`99:104`). */
+  /**
+   * زر اختيار — قيمتان × ثلاث حالات (`99:104`).
+   *
+   * **`name` يجمع المجموعة عند المتصفح لا عند Svelte.** `bind:group`
+   * يدير القيمة في JS ولا يكتب `name`، وبدونه يرى المتصفح كل زر
+   * مجموعةً وحده: تموت الأسهم بين الخيارات ويصير كل خيار محطة `Tab`
+   * مستقلة — في قائمة خطوط النظام ٢٠٦ محطة. §١٢ **ثابت**: سلوك
+   * المجموعة يأتي من العنصر الأصلي لا يُبنى فوقه.
+   */
   let {
-    group = $bindable<string>(), value, label, disabled = false,
-  }: { group?: string; value: string; label: string; disabled?: boolean } = $props();
+    group = $bindable<string>(), value, label, disabled = false, name,
+    block = false,
+  }: {
+    group?: string; value: string; label: string;
+    disabled?: boolean; name?: string;
+    /** يملأ عرض صفّه: صفٌّ يبدو قابلًا للنقر يجب أن يستجيب بعرضه كله. */
+    block?: boolean;
+  } = $props();
 </script>
 
-<label class="wrap" class:disabled>
-  <input type="radio" bind:group {value} {disabled} />
+<label class="wrap" class:disabled class:block>
+  <input type="radio" bind:group {value} {disabled} {name} />
   <span class="dot" aria-hidden="true"></span>
   <span class="text">{label}</span>
 </label>
@@ -17,6 +31,7 @@
     min-block-size: var(--size-hit); cursor: pointer;
   }
   .wrap.disabled { opacity: 0.45; cursor: default; }
+  .wrap.block { display: flex; inline-size: 100%; }
   input { position: absolute; opacity: 0; inline-size: 0; block-size: 0; }
   .dot {
     inline-size: 18px; block-size: 18px; flex: none;

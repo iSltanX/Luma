@@ -11,6 +11,7 @@ import type { EditorCore } from "../editor";
 import { buildLongDocument } from "./corpus";
 import { theme } from "../lib/theme.svelte";
 import { THEME_IDS } from "../tokens/themes";
+import { BUDGETS, LARGE_LIBRARY, LARGE_DOCUMENT, type Budget } from "./budgets";
 
 export interface Check {
   id: string;
@@ -57,10 +58,34 @@ export async function runSelfTest(
   editor: EditorCore,
   host: HTMLElement,
   invoke?: Invoke,
+  /**
+   * علامات الإقلاع الحقيقية بالمللي منذ بدء العملية.
+   *
+   * تُلتقط في `App.svelte` أثناء الإقلاع نفسه — لا هنا. قياسها من
+   * داخل الفحص يقرأ الساعة بعد ثلاثين بندًا سبقته، فيعطي رقمًا لا
+   * علاقة له بما ينتظره المستخدم (قِيس: ٣٤٧٧ms مقابل الحقيقة).
+   */
+  startup: Record<string, number> = {},
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (id: string, name: string, passed: boolean, detail: string) =>
     checks.push({ id, name, passed, detail });
+
+  /**
+   * يقارن قياسًا بميزانيته ويُسقط الفحص عند التجاوز.
+   *
+   * هذا هو الفرق بين ميزانية «مثبتة» وميزانية «محققة» — معيار اكتمال
+   * المرحلة ٧. الرقم المطبوع في تقرير لا يقرؤه أحد ليس بوابة.
+   */
+  const budget = (b: Budget, value: number, extra = "") =>
+    add(
+      b.id,
+      b.what,
+      value <= b.max,
+      `${round(value)}${b.unit} من ${b.max}${b.unit}` +
+        (extra ? ` — ${extra}` : "") +
+        (value <= b.max ? "" : "  ⚠️ تجاوز الميزانية"),
+    );
 
   /**
    * بصمة مكتبة المستخدم قبل الفحص.
@@ -936,6 +961,315 @@ export async function runSelfTest(
       }
     } catch (e) {
       add("fonts-imported-usable", "الخط المستورد يصل نافذة العرض", false, String(e));
+    }
+  }
+
+
+  // ══ ١٠ · ميزانيات الأداء — المسألة ١٠ في §١٨ ═══════════════
+  //
+  // ستّ ميزانيات تطلبها المرحلة ٧. كل واحدة تُقاس هنا **داخل
+  // `Luma.app`** وتُقارَن بسقفها في `budgets.ts`، ويسقط الفحص عند
+  // التجاوز. أرقام Lighthouse ليست هذه الأرقام — تلك تقيس صفحة ويب.
+  {
+    // ── (أ) زمن الفتح حتى مؤشر قابل للكتابة ─────────────────
+    //
+    // من **بدء العملية** لا من تحميل نافذة العرض: المستخدم ينتظر من
+    // النقر على الأيقونة. العلامات من الإقلاع الحقيقي، ويُتحقَّق هنا
+    // أن المؤشر يقبل حرفًا فعلًا — رقمٌ عن مؤشر لا يكتب لا معنى له.
+    {
+      editor.setBlocks([{ id: "b0", role: "body", text: "", marks: [] }]);
+      editor.focus();
+      await paint();
+      const before = editor.getBlocks()[0]?.text ?? "";
+      type("ح");
+      await paint();
+      const writable = (editor.getBlocks()[0]?.text ?? "") !== before;
+      const restored = startup["restored"] ?? -1;
+
+      if (!writable) {
+        add(BUDGETS.openToCaret.id, BUDGETS.openToCaret.what, false, "المؤشر لا يقبل حرفًا");
+      } else if (restored < 0) {
+        add(BUDGETS.openToCaret.id, BUDGETS.openToCaret.what, false, "لم تُلتقط علامات الإقلاع");
+      } else {
+        const stages = ["surface", "prefs", "fonts", "restored"]
+          .filter((k) => k in startup)
+          .map((k) => `${k} ${round(startup[k]!)}ms`)
+          .join(" · ");
+        // القياس في وضع الفحص لا يمرّ بالاستئناف (الجلسة مفصولة حمايةً
+        // لمستندات المستخدم)، وكلفةُ الاستئناف محدودة بميزانية (هـ)
+        // المقيسة أدناه: ٣٢ms تعدادًا و١٠ms فتحًا من ٥٠٧ مستندات.
+        budget(BUDGETS.openToCaret, restored, `${stages} — بلا استئناف`);
+      }
+    }
+
+    // ── (ب) زمن ظهور الحرف — في أثقل تشكيلة لا أرخصها ────────
+    //
+    // كان يُقاس والمحرر عاريًا. والمستخدم الذي فعّل الآلة الكاتبة
+    // والتركيز يدفع ثمنهما مع **كل حرف**: إعادة حساب مستطيل المؤشر،
+    // وقرار تمرير، وإعادة طلاء طبقة التخفيت. تلك هي حالته لا تلك.
+    const heavy = buildLongDocument(LARGE_DOCUMENT);
+    const t0 = performance.now();
+    editor.setBlocks(heavy);
+    host.getBoundingClientRect();
+    const buildMs = round(performance.now() - t0);
+
+    const measureKeystrokes = async (): Promise<{ p50: number; p95: number }> => {
+      editor.focus();
+      editor.caretToEnd();
+      await paint();
+      const s: number[] = [];
+      for (const ch of "الكتابة فعل هادئ لا يحتمل الضجيج") {
+        const a = performance.now();
+        document.execCommand("insertText", false, ch);
+        host.getBoundingClientRect();
+        s.push(performance.now() - a);
+        await paint();
+      }
+      s.sort((a, b) => a - b);
+      return {
+        p50: round(s[Math.floor(s.length / 2)] ?? 0),
+        p95: round(s[Math.floor(s.length * 0.95)] ?? 0),
+      };
+    };
+
+    const plain = await measureKeystrokes();
+    budget(BUDGETS.keystrokeP95, plain.p95, `p50 ${plain.p50}ms`);
+    // البناء يُؤكَّد عليه ولا يُطبع وحده: انحدر ٤٫٧× بين المرحلتين ٢ و٦
+    // (٦٥ms ← ٣١١ms) بلا إنذار، لأنه كان رقمًا في تقرير لا سقفًا.
+    budget(BUDGETS.documentBuild, buildMs, `${LARGE_DOCUMENT} كلمة`);
+
+    // التشكيلة الثقيلة: التركيز مفعَّل، والتمرير يتبع المؤشر
+    editor.setFocusMode(true);
+    await paint();
+    const comfort = await measureKeystrokes();
+    editor.setFocusMode(false);
+    await paint();
+    budget(BUDGETS.keystrokeComfortP95, comfort.p95, `p50 ${comfort.p50}ms`);
+
+    // ── (و-١) حدّ حجم المستند ────────────────────────────────
+    // الحدّ ليس رقمًا يُعلن بل رقمٌ **يُحتمَل**: المستند عند الحدّ
+    // يُبنى ويُكتب فيه ضمن ميزانية الحرف. البند أعلاه أثبت ذلك، وهذا
+    // يثبّت العدد نفسه.
+    const words = heavy.reduce(
+      (n, b) => n + b.text.split(/\s+/).filter(Boolean).length,
+      0,
+    );
+    add(
+      BUDGETS.documentWords.id,
+      BUDGETS.documentWords.what,
+      words >= BUDGETS.documentWords.max && plain.p95 <= BUDGETS.keystrokeP95.max,
+      `${words} كلمة — الكتابة عندها p95 ${plain.p95}ms`,
+    );
+
+    // ── (ج) زمن حفظ تعديل نموذجي ─────────────────────────────
+    //
+    // المسار كاملًا كما تسلكه الجلسة: تسلسل + كتابة ذرّية + قرار
+    // لقطة. لا `write_atomic` وحدها — تلك ليست ما ينتظره المستخدم.
+    if (invoke) {
+      try {
+        const id = "selftest-budget-save";
+        const blocks = heavy.slice(0, 60);
+        // أول حفظ يُنشئ الملف؛ الميزانية على **التعديل** لا الإنشاء
+        await invoke("save_document", {
+          payload: { id, title: null, blocks, createdAt: null },
+        });
+        const times: number[] = [];
+        for (let i = 0; i < 5; i += 1) {
+          const edited = blocks.map((b, n) =>
+            n === 0 ? { ...b, text: `${b.text} ${i}` } : b,
+          );
+          const a = performance.now();
+          await invoke("save_document", {
+            payload: { id, title: null, blocks: edited, createdAt: null },
+          });
+          times.push(performance.now() - a);
+        }
+        times.sort((a, b) => a - b);
+        const median = times[Math.floor(times.length / 2)] ?? 0;
+        budget(
+          BUDGETS.saveTypicalEdit,
+          median,
+          `وسيط ٥ حفظات على ${blocks.length} كتلة`,
+        );
+      } catch (e) {
+        add(BUDGETS.saveTypicalEdit.id, BUDGETS.saveTypicalEdit.what, false, String(e));
+      }
+    }
+
+    // ── (هـ) و(و-٢) مكتبة كبيرة: التعداد والفتح ──────────────
+    if (invoke) {
+      try {
+        const seeded = await invoke<number>("seed_library", {
+          count: LARGE_LIBRARY,
+          words: 400,
+        });
+
+        const l0 = performance.now();
+        const listing = await invoke<{ documents: { id: string }[] }>(
+          "list_documents",
+        );
+        const listMs = performance.now() - l0;
+
+        // الفتح: آخر مستند في الترتيب — أبعد ما يكون عن المخبَّأ
+        const target = listing.documents[listing.documents.length - 1]?.id;
+        let openMs = -1;
+        if (target) {
+          const o0 = performance.now();
+          await invoke("load_document", { id: target });
+          openMs = performance.now() - o0;
+        }
+
+        budget(
+          BUDGETS.openFromLargeLibrary,
+          Math.max(listMs, openMs),
+          `تعداد ${round(listMs)}ms وفتح ${round(openMs)}ms من ${listing.documents.length} مستندًا`,
+        );
+        add(
+          BUDGETS.libraryDocuments.id,
+          BUDGETS.libraryDocuments.what,
+          seeded >= LARGE_LIBRARY &&
+            listMs <= BUDGETS.openFromLargeLibrary.max,
+          `${seeded} مستندًا مبذورًا — التعداد عندها ${round(listMs)}ms`,
+        );
+      } catch (e) {
+        add(
+          BUDGETS.openFromLargeLibrary.id,
+          BUDGETS.openFromLargeLibrary.what,
+          false,
+          String(e),
+        );
+      }
+    }
+
+    // ── (د) الذاكرة في جلسة ممتدة ────────────────────────────
+    //
+    // `performance.memory` غير موجود في WebKit ولا يقيس عملية النواة
+    // أصلًا، فتُقرأ الذاكرة المقيمة من النظام. والجلسة الممتدة تُحاكى
+    // بما يفعله الكاتب فعلًا: كتابة، وفتح لوحات، وتبديل ثيمات،
+    // ومستندات تُبنى وتُهدم — مرارًا.
+    if (invoke) {
+      try {
+        const rssMb = async (): Promise<number> => {
+          const kb = await invoke<number | null>("memory_rss_kb");
+          return kb === null ? -1 : kb / 1024;
+        };
+        const before = await rssMb();
+        for (let round_ = 0; round_ < 12; round_ += 1) {
+          editor.setBlocks(buildLongDocument(4000));
+          editor.focus();
+          editor.caretToEnd();
+          type("جلسة ممتدة ");
+          theme.apply(THEME_IDS[round_ % THEME_IDS.length]!);
+          editor.setFocusMode(round_ % 2 === 0);
+          await paint();
+        }
+        editor.setFocusMode(false);
+        theme.apply(THEME_IDS[0]!);
+        editor.setBlocks([{ id: "b0", role: "body", text: "", marks: [] }]);
+        await paint();
+        const after = await rssMb();
+
+        if (before < 0 || after < 0) {
+          add(BUDGETS.memoryGrowth.id, BUDGETS.memoryGrowth.what, false, "تعذّر قياس الذاكرة");
+        } else {
+          budget(
+            BUDGETS.memoryGrowth,
+            after - before,
+            `${round(before)}MB ← ${round(after)}MB بعد ١٢ دورة`,
+          );
+        }
+      } catch (e) {
+        add(BUDGETS.memoryGrowth.id, BUDGETS.memoryGrowth.what, false, String(e));
+      }
+    }
+  }
+
+  // ══ ١١ · قدرات المنصة التي تقوم عليها سلامة النص ═══════════
+  //
+  // ما يحمي النص خلف الشاشات هو `inert`، وما يمنع الشريط من الانكسار
+  // هو صفٌّ صريح. كلاهما مُختبَر في Playwright — **وذاك متصفح آخر**.
+  // WKWebView هي التي تشحن، وفيها يُقاس ما يُعتمد عليه. ADR ٠٠١٢ سمّى
+  // دعم `inert` خطرًا مفتوحًا لأن جرده من مصفوفة دعم لا من قياس.
+  {
+    const probe = document.createElement("div");
+    probe.innerHTML =
+      '<button type="button" id="luma-inert-probe">مسبار</button>' +
+      '<div id="luma-inert-edit" contenteditable="true"></div>';
+    document.body.appendChild(probe);
+    const btn = probe.querySelector<HTMLElement>("#luma-inert-probe")!;
+    const edit = probe.querySelector<HTMLElement>("#luma-inert-edit")!;
+
+    // ١١أ · `inert` يمنع التركيز الجديد
+    //
+    // **الترتيب هنا ليس تفصيلًا.** التركيز يُرفع عن المسبار قبل تعطيل
+    // الشجرة: قياسُ «هل يبقى مركَّزًا» يقيس شيئًا آخر — ذاك سؤال ١١ب.
+    btn.focus();
+    const focusableBefore = document.activeElement === btn;
+    btn.blur();
+
+    probe.setAttribute("inert", "");
+    await paint();
+    btn.focus();
+    const focusableAfter = document.activeElement === btn;
+
+    add(
+      "inert-supported",
+      "`inert` يمنع التركيز الجديد في WKWebView",
+      focusableBefore && !focusableAfter,
+      focusableBefore
+        ? focusableAfter
+          ? "⚠️ السمة غير مدعومة — الكتابة تصل ما تحت الشاشات"
+          : "قابل للتركيز قبلها، ممتنع بعدها"
+        : "المسبار لم يقبل التركيز أصلًا — الفحص بلا معنى",
+    );
+
+    // ١١ب · وماذا عن عنصرٍ **كان مركَّزًا** حين عُطِّلت شجرته؟
+    //
+    // هذا هو حال Luma بالضبط: المحرر مركَّز حين تُفتح الإعدادات فوقه.
+    // ولا يُعتمد على أن `inert` يُسقط التركيز القائم — الإجابة تختلف
+    // بين المحركات. ولذلك في `App.svelte` حاجزان: نقلُ التركيز إلى
+    // الحوار عند فتحه، ورفضُ المحرر للتحرير ما دامت الشاشة قائمة.
+    // هذا الفحص يسجّل سلوك المنصة ولا يبني عليه.
+    probe.removeAttribute("inert");
+    await paint();
+    edit.focus();
+    const editFocused = document.activeElement === edit;
+    probe.setAttribute("inert", "");
+    await paint();
+    const stillFocused = document.activeElement === edit;
+    document.execCommand("insertText", false, "تسرّب");
+    const wrote = edit.textContent !== "";
+    probe.remove();
+
+    add(
+      "inert-existing-focus",
+      "سلوك المنصة مع تركيزٍ قائم عند التعطيل — مسجَّل لا معتمَد عليه",
+      editFocused,
+      editFocused
+        ? `بعد التعطيل: التركيز ${stillFocused ? "باقٍ" : "أُسقط"} والكتابة ${wrote ? "مرّت" : "رُفضت"}` +
+          " — ولذلك حاجزٌ ثانٍ في `App.svelte` لا يعتمد على هذا"
+        : "المسبار لم يقبل التركيز أصلًا — الفحص بلا معنى",
+    );
+
+    // ١١ج · شريط النافذة صفٌّ واحد
+    //
+    // كان صفّين: الشبكة تضع العناصر بالترتيب ولا تعود إلى الوراء،
+    // فالعنوان في العمود ٢ يدفع حالةَ الحفظ في العمود ١ إلى صفٍّ ثانٍ
+    // داخل ارتفاع ثابت. قيس في المتصفح ٣٥٫٥px + ١١٫٥px.
+    const bar = document.querySelector<HTMLElement>(".titlebar");
+    if (bar) {
+      const rows = getComputedStyle(bar).gridTemplateRows.trim().split(/\s+/);
+      const box = bar.getBoundingClientRect();
+      const kids = Array.from(bar.children).map((c) => c.getBoundingClientRect());
+      const outside = kids.filter(
+        (r) => r.height > 0 && (r.top < box.top - 1 || r.bottom > box.bottom + 1),
+      ).length;
+      add(
+        "titlebar-single-row",
+        "شريط النافذة صفٌّ واحد ولا يتدلّى منه شيء",
+        rows.length === 1 && outside === 0,
+        `صفوف: ${rows.join(" · ")} — خارج الشريط: ${outside}`,
+      );
     }
   }
 

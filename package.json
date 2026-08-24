@@ -12,9 +12,12 @@
     "app:build": "tauri build",
     "check": "svelte-check --tsconfig ./tsconfig.json --fail-on-warnings",
     "check:rust": "cd src-tauri && cargo clippy --all-targets -- -D warnings && cargo fmt --check",
+    "test:rust": "cd src-tauri && cargo test",
+    "selftest": "./scripts/selftest.sh",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "verify": "npm run check && npm run check:rust && npm run test"
+    "verify": "npm run check && npm run check:rust && npm run test && npm run test:rust",
+    "site": "node docs/site/build.mjs"
   },
   "dependencies": {
     "@tauri-apps/api": "^2.9.0"

@@ -216,7 +216,9 @@
           <NavRow label="المظهر" icon="appearance" active />
           <NavRow label="الكتابة" icon="document" />
           <SettingsRow label="عداد الكلمات" hint="مخفي افتراضيًا">
-            {#snippet control()}<Toggle bind:checked={off} label="" />{/snippet}
+            {#snippet control()}
+              <Toggle bind:checked={off} label="مثال إعداد" showLabel={false} />
+            {/snippet}
           </SettingsRow>
         </div>
       </div>

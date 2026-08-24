@@ -2,8 +2,15 @@
   import Icon from "./Icon.svelte";
   import type { IconName } from "./icons";
   /** إشعار عابر — ثلاثة أنواع (`104:137`). **واحد في كل وقت، لا يتراكم** (§١٢). */
-  let { kind = "neutral", text, action = "" }:
-    { kind?: "neutral" | "success" | "critical"; text: string; action?: string } = $props();
+  let { kind = "neutral", text, action = "", onclick }:
+    {
+      kind?: "neutral" | "success" | "critical";
+      text: string;
+      /** نصّ الإجراء. **لا يُمرَّر بلا `onclick`** — زرٌّ لا يفعل شيئًا
+          واجهةٌ لميزة غير موجودة (§١٢ **ثابت**). */
+      action?: string;
+      onclick?: () => void;
+    } = $props();
   const ICON: Record<string, IconName | null> = {
     neutral: null, success: "check", critical: "error",
   };
@@ -12,7 +19,9 @@
 <div class="toast {kind}" role="status" aria-live="polite">
   {#if ICON[kind]}<Icon name={ICON[kind]!} decorative />{/if}
   <span class="text">{text}</span>
-  {#if action}<button type="button" class="action">{action}</button>{/if}
+  {#if action}
+    <button type="button" class="action luma-hit" {onclick}>{action}</button>
+  {/if}
 </div>
 
 <style>

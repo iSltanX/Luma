@@ -32,7 +32,11 @@
   }
   .ib:hover:not(:disabled) { background: var(--surface-sunken); color: var(--text-primary); }
   .ib:active:not(:disabled) { background: var(--border-subtle); }
-  .ib.active { background: var(--accent-subtle); color: var(--accent-text); }
+  /* إشارة شكل مع اللون — الشرح في `NavRow`. */
+  .ib.active {
+    background: var(--accent-subtle); color: var(--accent-text);
+    box-shadow: inset 0 0 0 1px var(--accent-graphic);
+  }
   .ib:focus-visible {
     outline: var(--size-focus-ring) solid var(--accent-graphic);
     outline-offset: var(--size-focus-offset);

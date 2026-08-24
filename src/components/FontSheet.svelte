@@ -72,12 +72,47 @@
     group = selected;
   });
 
+  /**
+   * تنقّل التبويبات بالأسهم — عُرف `tablist` وما يوجبه `role="tab"`.
+   *
+   * إعلانُ الدور بلا سلوكه أسوأ من عدم إعلانه: قارئ الشاشة يقول
+   * «تبويب ١ من ٣» فينتظر المستخدم الأسهم ولا تعمل. والتركيز متنقّل
+   * (`roving tabindex`) كما في `SelectionToolbar`: محطة `Tab` واحدة
+   * للمجموعة كلها لا ثلاث.
+   *
+   * **الأسهم معكوسة في RTL**: `ArrowLeft` يتقدّم لأن التالي يسارًا.
+   */
+  function onTabKeys(e: KeyboardEvent) {
+    const step = e.key === "ArrowLeft" ? 1 : e.key === "ArrowRight" ? -1 : 0;
+    if (step === 0) return;
+    e.preventDefault();
+    const i = TABS.indexOf(tab);
+    const next = TABS[(i + step + TABS.length) % TABS.length]!;
+    tab = next;
+    // التركيز يتبع الاختيار — نمط `automatic activation` في ARIA
+    queueMicrotask(() =>
+      document.querySelector<HTMLElement>(`[data-tab="${next}"]`)?.focus(),
+    );
+  }
+
   function onkeydown(e: KeyboardEvent) {
     if (e.key === "Escape") {
       e.stopPropagation();
       onclose();
     }
   }
+
+  /**
+   * جذر الورقة — **يستقبل التركيز عند الفتح**.
+   *
+   * الورقة تعلو شاشة الإعدادات، وتلك تصير `inert` تحتها. بلا نقل
+   * التركيز هنا يبقى في عنصرٍ خرج للتوّ من الشجرة فيسقط إلى `<body>`،
+   * فلا يجد `Tab` من أين يبدأ ولا يصل `Esc` معالجًا.
+   */
+  let root = $state<HTMLElement | null>(null);
+  $effect(() => {
+    root?.focus();
+  });
 </script>
 
 <!-- الحاجب: نقرة خارج الورقة تغلقها، وهو أيضًا ما يمنع الوصول إلى ما
@@ -92,9 +127,10 @@
 <div
   class="sheet"
   role="dialog"
-  aria-modal="false"
+  aria-modal="true"
   aria-label="اختيار خط الكتابة"
   data-font-sheet
+  bind:this={root}
   tabindex={-1}
   {onkeydown}
 >
@@ -104,16 +140,21 @@
     <IconButton name="close" label="إغلاق اختيار الخط" onclick={onclose} />
   </header>
 
+  <!-- المعالج على الأزرار لا على الحاوية: الحاوية ليست هدف تركيز،
+       والمفتاح يصل من الزر المركَّز عليه أصلًا. -->
   <div class="tabs" role="tablist" aria-label="مصادر الخطوط">
     {#each TABS as t (t)}
       <button
         type="button"
         role="tab"
-        class="tab"
+        class="tab luma-hit"
         class:on={tab === t}
         aria-selected={tab === t}
+        aria-controls="luma-font-list"
+        tabindex={tab === t ? 0 : -1}
         data-tab={t}
         onclick={() => (tab = t)}
+        onkeydown={onTabKeys}
       >
         {sourceLabel(t)}
       </button>
@@ -122,6 +163,7 @@
 
   <div
     class="list"
+    id="luma-font-list"
     role="tabpanel"
     aria-label={sourceLabel(tab)}
     onchange={() => {
@@ -138,7 +180,15 @@
     {:else}
       {#each shown as font (font.id)}
         <div class="row" data-font={font.id}>
-          <Radio bind:group value={font.id} label={font.familyName} />
+          <!-- يملأ الصف: كان الصف يبدو قابلًا للنقر بعرضه كله ولا
+               يستجيب إلا فوق اسم الخط ودائرته. -->
+          <Radio
+            bind:group
+            name="luma-font"
+            value={font.id}
+            label={font.familyName}
+            block
+          />
           <span class="spacer"></span>
           <Badge kind={coverageBadge(font.arabicCoverage)}>
             {coverageLabel(font.arabicCoverage)}
@@ -289,16 +339,17 @@
     color: var(--text-muted);
     margin: 0;
   }
+  /* المعاينة بمقاس المستخدم وتباعده، لا بمقاسٍ مكتوب هنا: غايتها أن
+     يرى كيف سيبدو نصّه — ومعاينةٌ بمقاسٍ آخر تُري شيئًا لا يكتبه. */
   .sample {
     margin: 0;
-    font-size: 19px;
-    line-height: 1.9;
+    font-size: var(--luma-editor-size);
+    line-height: var(--luma-editor-leading);
     letter-spacing: 0;
     color: var(--editor-ink);
   }
   .sample.small {
-    font-size: 15px;
-    line-height: 1.7;
+    font-size: calc(var(--luma-editor-size) * 0.8);
   }
 
   .foot {

@@ -90,6 +90,13 @@
   .current .title {
     color: var(--accent-text);
   }
+  /* `text/muted` فوق `accent/subtle` يسقط دون ٤٫٥ في الثيمات الأربعة
+     الفاتحة (٤٫٣٧ · ٤٫٤٦ · ٤٫٤٥ · ٤٫٣٩). الصف المحدَّد يرفعهما درجة،
+     و`text/secondary` فوقه يجتاز في الخمسة. */
+  .current .when,
+  .current .excerpt {
+    color: var(--text-secondary);
+  }
   .when {
     margin-inline-start: auto;
     flex: none;

@@ -126,31 +126,44 @@ impl RevisionStore {
         }
     }
 
-    /// يقصّ الأقدم عند تجاوز حدّ العدد أو الحجم.
+    /// يقصّ **الأقدم** عند تجاوز حدّ العدد أو الحجم.
     ///
     /// **لا يُقصّ ما مصدره `BeforeRestore`:** تلك شبكة الأمان التي
     /// تجعل الاستعادة قابلة للتدارك.
+    ///
+    /// `list()` من الأحدث إلى الأقدم، والمرور يتراكم عليه: ما دام
+    /// المُبقى داخل الحدّين يُبقى، وأول ما يتجاوزهما يُحذف ومَن بعده.
+    /// فالحذف يقع في ذيل القائمة — أي في الأقدم.
+    ///
+    /// كان حدّ الحجم يُقاس على **مجموع الكل** ويُفحص من أول عنصر،
+    /// فيحذف الأحدث أولًا ويستمر نازلًا حتى ينزل المجموع: أي أنه كان
+    /// يقصّ عكس ما يوثّقه تمامًا، فيمحو لقطة اليوم ويُبقي لقطة الشهر
+    /// الماضي.
     fn prune(&self) -> Result<()> {
         let list = self.list()?;
-        let mut total: u64 = 0;
-        let mut sizes = Vec::with_capacity(list.len());
-        for s in &list {
+        let mut kept = 0usize;
+        let mut kept_bytes: u64 = 0;
+
+        for s in list.iter() {
             let size = fs::metadata(self.path_for(&s.id))
                 .map(|m| m.len())
                 .unwrap_or(0);
-            total += size;
-            sizes.push(size);
-        }
 
-        let mut kept = 0usize;
-        for (i, s) in list.iter().enumerate() {
+            // شبكة الأمان تُبقى دائمًا، وتُحسب في الميزانية لأنها
+            // تشغل القرص فعلًا
+            if s.source == RevisionSource::BeforeRestore {
+                kept += 1;
+                kept_bytes += size;
+                continue;
+            }
+
             let over_count = kept >= MAX_REVISIONS;
-            let over_size = total > MAX_TOTAL_BYTES;
-            if (over_count || over_size) && s.source != RevisionSource::BeforeRestore {
+            let over_size = kept_bytes.saturating_add(size) > MAX_TOTAL_BYTES;
+            if over_count || over_size {
                 let _ = fs::remove_file(self.path_for(&s.id));
-                total = total.saturating_sub(sizes[i]);
             } else {
                 kept += 1;
+                kept_bytes += size;
             }
         }
         Ok(())
@@ -260,6 +273,81 @@ mod tests {
         assert!(
             list.iter().any(|r| r.id == guard.id),
             "قُصّت لقطة ما قبل الاستعادة — شبكة الأمان"
+        );
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn pruning_by_count_keeps_the_newest_and_drops_the_oldest() {
+        let s = store("prune-order");
+        let mut created = Vec::new();
+        for i in 0..(MAX_REVISIONS + 5) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            created.push(
+                s.create(&doc(&format!("لقطة {i}")), RevisionSource::Automatic)
+                    .unwrap(),
+            );
+        }
+        let list = s.list().unwrap();
+        assert!(list.len() <= MAX_REVISIONS);
+
+        // الأحدث باقية
+        let newest = created.last().unwrap();
+        assert!(
+            list.iter().any(|r| r.id == newest.id),
+            "قُصّت أحدث لقطة بدل أقدمها"
+        );
+        // الأقدم ذهبت
+        let oldest = created.first().unwrap();
+        assert!(
+            !list.iter().any(|r| r.id == oldest.id),
+            "بقيت أقدم لقطة رغم تجاوز الحدّ"
+        );
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    /// حدّ الحجم كان يُقاس على المجموع ويُفحص من رأس القائمة، فيحذف
+    /// **الأحدث** أولًا. الحدّ هنا يُصغَّر بالحساب لا بتغيير الثابت:
+    /// لقطات كبيرة يتجاوز مجموعها ٢٠MB.
+    #[test]
+    fn pruning_by_size_drops_the_oldest_not_the_newest() {
+        let s = store("prune-size");
+        // كل لقطة نحو ٢٫٥MB، فاثنتا عشرة تتجاوز حدّ ٢٠MB
+        let heavy = "ن".repeat(1_200_000);
+        let mut created = Vec::new();
+        for i in 0..12 {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            created.push(
+                s.create(&doc(&format!("{i} {heavy}")), RevisionSource::Automatic)
+                    .unwrap(),
+            );
+        }
+
+        let list = s.list().unwrap();
+        assert!(list.len() < 12, "لم يقصّ حدّ الحجم شيئًا");
+
+        let newest = created.last().unwrap();
+        assert!(
+            list.iter().any(|r| r.id == newest.id),
+            "حدّ الحجم قصّ أحدث لقطة — عكس ما يوثّقه"
+        );
+        let oldest = created.first().unwrap();
+        assert!(
+            !list.iter().any(|r| r.id == oldest.id),
+            "حدّ الحجم أبقى أقدم لقطة"
+        );
+
+        let total: u64 = list
+            .iter()
+            .map(|r| {
+                fs::metadata(s.path_for(&r.id))
+                    .map(|m| m.len())
+                    .unwrap_or(0)
+            })
+            .sum();
+        assert!(
+            total <= MAX_TOTAL_BYTES,
+            "المجموع بعد القصّ {total} فوق الحدّ"
         );
         let _ = fs::remove_dir_all(&s.dir);
     }

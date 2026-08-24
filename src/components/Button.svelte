@@ -32,6 +32,7 @@
 <button
   {type}
   class="btn {kind} {size}"
+  class:luma-hit={size === "sm"}
   disabled={disabled || loading}
   aria-busy={loading ? "true" : undefined}
   {onclick}
@@ -59,7 +60,16 @@
   .sm { min-height: var(--size-btn-sm); padding-inline: var(--space-012); }
 
   .primary { background: var(--accent-text); color: var(--text-on-accent); }
-  .primary:hover:not(:disabled) { background: var(--accent-graphic); }
+  /* التمرير **لا** يحوّل التعبئة إلى `accent-graphic`: نصّ الزر عليها
+     ٣٫٦٠ · ٣٫٦٥ · ٣٫٦٦ · ٣٫٦٣ · ٤٫٠٦ — دون ٤٫٥ في الثيمات الخمسة كلها.
+     التعبئة تُعمَّق نحو `text/primary`، وهو نقيض `text/on-accent` في كل
+     ثيم (فاتح على داكن أو العكس)، فالتباين يزيد ولا ينقص أيًّا كان
+     الثيم. والحدّ أثرٌ ظاهر لا يعتمد على دعم `color-mix`: من لا يدعمها
+     يرى الحدّ ويبقى النص عند ٥٫٤١ فأعلى. */
+  .primary:hover:not(:disabled) {
+    border-color: var(--accent-graphic);
+    background: color-mix(in srgb, var(--accent-text) 88%, var(--text-primary));
+  }
 
   .secondary {
     background: var(--surface-paper);

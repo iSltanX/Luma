@@ -33,6 +33,7 @@
     onchange,
     onpickfont,
     onclose,
+    inert = false,
   }: {
     prefs: Preferences;
     section?: SettingsSectionId;
@@ -43,7 +44,20 @@
     onchange: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
     onpickfont: () => void;
     onclose: () => void;
+    /** تُرفع حين تعلوها ورقة الخط، فتخرج من مسار التركيز — §١٣. */
+    inert?: boolean;
   } = $props();
+
+  /**
+   * جذر الشاشة — **يستقبل التركيز عند الفتح**.
+   *
+   * الشاشة تغطّي النافذة كاملة، والإطار تحتها يصير `inert`. بلا نقل
+   * التركيز هنا يسقط إلى `<body>` فلا يجد `Tab` من أين يبدأ.
+   */
+  let root = $state<HTMLElement | null>(null);
+  $effect(() => {
+    root?.focus();
+  });
 
   const current = $derived(SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]!);
   const activeFont = $derived(fonts.find((f) => f.id === prefs.fontFamily) ?? null);
@@ -54,7 +68,21 @@
   );
 </script>
 
-<div class="screen" data-settings>
+<!--
+  `role="dialog"` مع خلفية `inert`: ليس حبسًا للتركيز — الخلفية خرجت
+  من الشجرة فعلًا، فالإعلان صادقٌ لا حيلة. و§١٠ «لا لوحة تحبس التركيز»
+  عن اللوحات الجانبية، وهذه شاشة تحلّ محلّ الإطار لا عمودٌ بجانبه.
+-->
+<div
+  class="screen"
+  data-settings
+  bind:this={root}
+  role="dialog"
+  aria-modal="true"
+  aria-label="الإعدادات"
+  tabindex={-1}
+  {inert}
+>
   <header class="titlebar luma-chrome" data-tauri-drag-region>
     <span class="title">الإعدادات</span>
     <div class="close">
@@ -345,6 +373,9 @@
   }
   .title {
     grid-column: 2;
+    /* الصف صريح — الشرح في `EditorShell`: بدونه يسقط زر الإغلاق إلى
+       صفّ ثانٍ ويتدلّى ٨px تحت الشريط. مُقاسًا عند تكبير ١×. */
+    grid-row: 1;
     justify-self: center;
     font: var(--text-ui-07);
     letter-spacing: 0;
@@ -353,7 +384,15 @@
   /* الإغلاق في الطرف المقابل لأزرار النظام — القاعدة نفسها في `EditorShell` */
   .close {
     grid-column: var(--luma-status-col);
+    grid-row: 1;
     justify-self: var(--luma-status-justify);
+  }
+
+  /* الجذر يستقبل التركيز برمجيًا لا بلوحة المفاتيح، فلا حلقة له:
+     الحلقة تُعلن عنصرًا تفاعليًا، وهذا وعاء. `:focus-visible` لا
+     يُطابق التركيز البرمجي أصلًا، والإلغاء هنا تصريحٌ بالنيّة. */
+  .screen:focus {
+    outline: none;
   }
 
   .body {

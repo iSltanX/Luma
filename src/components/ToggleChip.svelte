@@ -32,7 +32,7 @@
 
 <button
   type="button"
-  class="chip"
+  class="chip luma-hit"
   class:on
   aria-pressed={on}
   data-chip={name}
@@ -50,7 +50,11 @@
     min-block-size: var(--size-btn-sm);
     padding-inline: var(--space-012);
     border-radius: var(--radius-full);
-    border: 1px solid var(--border-subtle);
+    /* `border/control` لا `border/subtle`: هذا الحدّ هو ما يعرّف
+       الرقاقةَ عنصرَ تحكم، و`border/subtle` عليه ١٫٢٦–١٫٣٢:١ — أي غير
+       مُدرَك. القاعدة نفسها المكتوبة في `Toggle`: «border-control هو
+       الحدّ الوحيد المسموح أن يعرّف عنصر تحكم». */
+    border: 1px solid var(--border-control);
     background: var(--surface-paper);
     color: var(--text-secondary);
     font: var(--text-ui-09);

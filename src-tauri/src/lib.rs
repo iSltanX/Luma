@@ -145,10 +145,61 @@ fn selftest_mode() -> bool {
     std::env::var("LUMA_SELFTEST").is_ok_and(|v| v == "1")
 }
 
+/// رقم المرحلة التي يُنسب إليها التقرير — `LUMA_PHASE=7`. أداة تطوير.
+///
+/// كان مثبَّتًا في الواجهة، فحمل ملف أدلة المرحلة السادسة الرقم «٥».
+#[tauri::command]
+fn selftest_phase() -> String {
+    std::env::var("LUMA_PHASE").unwrap_or_default()
+}
+
 /// وضع المعرض — `LUMA_GALLERY=1`. أداة تطوير.
 #[tauri::command]
 fn gallery_mode() -> bool {
     std::env::var("LUMA_GALLERY").is_ok_and(|v| v == "1")
+}
+
+/// لحظة بدء العملية — مرساة «زمن الفتح حتى مؤشر قابل للكتابة».
+///
+/// القياس من داخل نافذة العرض وحدها يبدأ بعد إقلاع العملية وتهيئة
+/// النافذة، فيقيس نصف الطريق. `Instant` هنا يُلتقط في أول سطر من
+/// `run()`، فيصير الرقمُ ما يشعر به المستخدم فعلًا: من النقر على
+/// الأيقونة إلى مؤشر يقبل الحرف.
+static STARTED_AT: std::sync::OnceLock<std::time::Instant> = std::sync::OnceLock::new();
+
+/// المنقضي بالمللي منذ بدء العملية. أداة قياس.
+#[tauri::command]
+fn startup_elapsed_ms() -> f64 {
+    STARTED_AT
+        .get()
+        .map(|t| t.elapsed().as_secs_f64() * 1000.0)
+        .unwrap_or(-1.0)
+}
+
+/// الذاكرة المقيمة للعملية بالكيلوبايت، أو `None` إن تعذّر القياس.
+///
+/// `performance.memory` غير موجود في WebKit، ولا يقيس عملية النواة
+/// أصلًا. و«الذاكرة في جلسة ممتدة» ميزانيةُ **العملية** لا الكومة —
+/// فتُقرأ من النظام. `ps` كافٍ ولا يجرّ اعتمادية.
+#[tauri::command]
+fn memory_rss_kb() -> Option<u64> {
+    let out = std::process::Command::new("/bin/ps")
+        .args(["-o", "rss=", "-p", &std::process::id().to_string()])
+        .output()
+        .ok()?;
+    String::from_utf8_lossy(&out.stdout).trim().parse().ok()
+}
+
+/// الواجهة رفضت الإغلاق لأن الحفظ لم ينجح — يُفتح المزلاج من جديد.
+///
+/// بدونه: أول محاولة إغلاق تُمنع وتُبثّ، والواجهة ترفض الهدم لأن
+/// النص لم يصل القرص، ثم **المحاولة الثانية تمرّ بلا حفظ** لأن
+/// المزلاج بقي مغلقًا — فيُغلق التطبيق على نصّ ضائع. الفتح هنا يجعل
+/// كل محاولة تمرّ بالحفظ وتُبلّغ من جديد (§٥ **ثابت**: «فرصة استرجاع
+/// صريحة»). والمستخدم لا يعلق: ⌘Q والإنهاء القسري بابان مفتوحان.
+#[tauri::command]
+fn close_declined() {
+    CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// يكتب تقرير الفحص إلى مجلد البيانات. أداة تطوير.
@@ -230,6 +281,7 @@ static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
+    let _ = STARTED_AT.set(std::time::Instant::now());
     tauri::Builder::default()
         .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
@@ -238,8 +290,13 @@ pub fn run() {
             demo_mode,
             demo_stage,
             selftest_mode,
+            selftest_phase,
             gallery_mode,
             write_report,
+            startup_elapsed_ms,
+            memory_rss_kb,
+            close_declined,
+            commands::seed_library,
             commands::save_document,
             commands::load_document,
             commands::list_documents,

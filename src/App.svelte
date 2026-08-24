@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { onMount, onDestroy } from "svelte";
+  import { onMount, onDestroy, tick } from "svelte";
   import { EditorCore, emptyDocument, type Block, type BlockRole } from "./editor";
   import Gallery from "./dev/Gallery.svelte";
   import { EditorSession } from "./lib/session";
@@ -58,6 +58,20 @@
   let previewAt = $state<number | null>(null);
   let restoring = $state(false);
 
+  /**
+   * عطلٌ يخصّ المستخدم لا سجلّ المطوّر.
+   *
+   * كانت مسارات الفشل كلها تنتهي عند `console.error`: المستخدم يضغط
+   * ويرى شيئًا لم يحدث بلا سبب معلن. §٩ **ثابت**: «تعذُّر قراءة لقطة
+   * قديمة **يُظهر خطأ** محصورًا في تلك اللقطة». يبقى حتى يُعالج سببه.
+   */
+  let problem = $state<{ title: string; detail: string } | null>(null);
+  function fail(title: string, detail: unknown) {
+    const text = detail instanceof Error ? detail.message : String(detail);
+    problem = { title, detail: text };
+    console.error(`[luma] ${title}:`, detail);
+  }
+
   // ── شريط التحديد ───────────────────────────────────────────
   let selection = $state<{ top: number; left: number } | null>(null);
   let role = $state<BlockRole | null>(null);
@@ -67,7 +81,6 @@
   let comfort = $state(false);
   /** Zen: تتراجع العناصر أثناء الكتابة وتعود بحركة المؤشر أو Esc. */
   let zenHidden = $state(false);
-  let zenTimer: ReturnType<typeof setTimeout> | null = null;
 
   let settings = $state(false);
   let settingsSection = $state<SettingsSectionId>("appearance");
@@ -79,6 +92,27 @@
   let dataDir = $state("");
 
   let gallery = $state(false);
+
+  /**
+   * علامات الإقلاع — ميزانية (أ): «زمن الفتح حتى مؤشر قابل للكتابة».
+   *
+   * تُلتقط بـ`performance.now()` محليًّا، وتُحوَّل إلى «منذ بدء
+   * العملية» بمرساة واحدة تُقرأ من النواة مرة واحدة: قراءتها عند كل
+   * علامة تضيف زمن جسرٍ إلى ما تقيسه.
+   *
+   * **علامتان لا واحدة.** «السطح جاهز» يقع باكرًا على مستند فارغ،
+   * و«النص عاد» هو ما ينتظره المستخدم فعلًا — ومَن يقيس الأولى وحدها
+   * يعلن رقمًا لا يعيشه أحد.
+   */
+  const marks: Record<string, number> = {};
+  let startupAnchor: { process: number; local: number } | null = null;
+  const sinceStart = (t: number): number =>
+    startupAnchor ? startupAnchor.process + (t - startupAnchor.local) : -1;
+  export function startupMarks(): Record<string, number> {
+    const out: Record<string, number> = {};
+    for (const [k, v] of Object.entries(marks)) out[k] = sinceStart(v);
+    return out;
+  }
 
   let session: EditorSession | null = null;
   let invoke: Invoke | null = null;
@@ -186,7 +220,6 @@
   /** Zen: تتراجع العناصر مع الكتابة، وتعود بحركة المؤشر أو بالتركيز. */
   function zenRecede() {
     zenHidden = true;
-    if (zenTimer) clearTimeout(zenTimer);
   }
 
   function zenReveal() {
@@ -304,10 +337,12 @@
     try {
       await session.open(id);
     } catch (e) {
-      // فشل الفتح يترك المستند الحالي كما هو — §١٧ مبدأ ٤
-      console.error("[luma] تعذّر فتح المستند:", e);
+      // فشل الفتح يترك المستند الحالي كما هو — §١٧ مبدأ ٤.
+      // ويشمل ذلك **فشل حفظ الحالي**: لا يُستبدل نصٌّ لم يصل القرص.
+      fail("تعذّر فتح النص", e);
       return;
     }
+    problem = null;
     currentId = session.currentId;
     count = editor.wordCount;
     await refreshLibrary();
@@ -322,8 +357,15 @@
       return;
     }
     if (!invoke || !session) return;
-    // الحالة الحيّة تصل القرص قبل أي استبدال في المحرر
-    await session.flush();
+    // الحالة الحيّة تصل القرص **قبل** أي استبدال في المحرر — وإن لم
+    // تصل، لا معاينة: المعاينة تستبدل ما في المحرر.
+    if (!(await session.flush())) {
+      fail(
+        "تعذّرت المعاينة",
+        "لم يصل نصّك الحالي إلى القرص بعد، ولا يُستبدل نصٌّ غير محفوظ.",
+      );
+      return;
+    }
     try {
       const rev = await invoke<{ blocks: Block[]; createdAt: number }>(
         "load_revision",
@@ -334,9 +376,11 @@
       editor.setBlocks(rev.blocks);
       editor.setEditable(false);
       selection = null;
+      problem = null;
     } catch (e) {
-      // «تعذُّر قراءة نسخة قديمة لا يؤثر في المستند الحالي» — §٩
-      console.error("[luma] تعذّرت قراءة النسخة:", e);
+      // «تعذُّر قراءة نسخة قديمة لا يؤثر في المستند الحالي» — §٩.
+      // الخطأ محصور في تلك اللقطة: المحرر لم يُمسّ، والمعاينة لم تبدأ.
+      fail("تعذّرت قراءة هذه النسخة", e);
     }
   }
 
@@ -364,9 +408,10 @@
       count = editor.wordCount;
       now = Date.now();
       await refreshRevisions();
+      problem = null;
       editor.focus();
     } catch (e) {
-      console.error("[luma] تعذّرت الاستعادة:", e);
+      fail("تعذّرت استعادة هذه النسخة", e);
     } finally {
       restoring = false;
     }
@@ -391,8 +436,8 @@
     // ثم اللوحة. طبقةٌ واحدة في كل ضغطة، فلا يُفاجأ المستخدم بخروج
     // من وضعٍ لم يقصده.
     e.preventDefault();
-    if (fontSheet) fontSheet = false;
-    else if (settings) settings = false;
+    if (fontSheet) void closeFontSheet();
+    else if (settings) void closeSettings();
     else if (comfort) exitComfort();
     else if (surface !== null) closeSurface();
   }
@@ -414,6 +459,18 @@
 
   // ── الإعدادات ──────────────────────────────────────────────
 
+  /**
+   * حاجز ثانٍ لا يعتمد على `inert`.
+   *
+   * `inert` هو ما يُخرج الإطار من مسار التركيز، وعليه تقوم سلامة النص
+   * حين تعلوه شاشة. وهو مدعوم في كل إصدار macOS مدعوم (WebKit 15.5)،
+   * لكن ما يحمي النص لا يُترك لحاجزٍ واحد: المحرر نفسه يرفض التحرير
+   * ما دامت الشاشة قائمة. حاجزان مستقلان، وسقوط أحدهما لا يُفقد حرفًا.
+   */
+  $effect(() => {
+    if (settings) editor.setEditable(false);
+  });
+
   async function openSettings() {
     exitPreview();
     surface = null;
@@ -423,10 +480,27 @@
     await refreshFonts();
   }
 
-  function closeSettings() {
+  /**
+   * الإغلاق يعيد التركيز إلى النص — **بعد أن ترفع الشجرة `inert`**.
+   *
+   * `settings = false` لا يُطبَّق على DOM فورًا، والإطار ما زال
+   * `inert` لحظةَ استدعاء `focus()`، فيسقط الطلب صامتًا ويضيع
+   * التركيز إلى `<body>`. `tick()` ينتظر تطبيق التغيير.
+   */
+  async function closeSettings() {
     settings = false;
     fontSheet = false;
+    await tick();
+    // المعاينة تنتهي عند فتح الإعدادات، فالعودة دائمًا إلى قابل للتحرير
+    editor.setEditable(true);
     editor.focus();
+  }
+
+  /** إغلاق ورقة الخط يعيد التركيز إلى مدخلها في الإعدادات. */
+  async function closeFontSheet() {
+    fontSheet = false;
+    await tick();
+    document.querySelector<HTMLElement>("[data-open-fonts]")?.focus();
   }
 
   /** يحوّل مسارًا محليًّا إلى عنوان أصول — يُضبط عند وصل النواة. */
@@ -483,6 +557,7 @@
     const host = hostEl;
     editor.mount(host, emptyDocument());
     editor.focus();
+    marks["surface"] = performance.now();
 
     window.addEventListener("keydown", onKeydown);
     cleanups.push(() => window.removeEventListener("keydown", onKeydown));
@@ -505,6 +580,16 @@
     invoke = core.invoke;
     const call = core.invoke;
     toAssetUrl = core.convertFileSrc;
+
+    // المرساة أول ما يتاح الجسر: قبلها لا سبيل إلى ساعة النواة
+    try {
+      startupAnchor = {
+        process: await call<number>("startup_elapsed_ms"),
+        local: performance.now(),
+      };
+    } catch {
+      startupAnchor = null;
+    }
 
     try {
       const { getVersion } = await import("@tauri-apps/api/app");
@@ -541,10 +626,13 @@
       theme.hydrate(undefined);
     }
 
+    marks["prefs"] = performance.now();
+
     // **الخطوط قبل أول رسم للنص.**
     // مستندٌ يُستأنف بخط مستورد يجب أن يُرسم به لا ببديله، وخطٌّ اختفى
     // من النظام يجب أن يعود إلى Almarai قبل أن يراه المستخدم — §٨.
     await refreshFonts();
+    marks["fonts"] = performance.now();
 
     session = new EditorSession({
       editor,
@@ -575,7 +663,20 @@
       cleanups.push(
         await listen("luma://flush-and-close", async () => {
           preferences.flush();
-          await session?.flush();
+          // **فرصة استرجاع صريحة عند الإغلاق** — §٥ **ثابت**.
+          // النافذة لا تُهدم على تغيير لم يصل القرص: يبقى النص في
+          // الذاكرة، وتظهر الحالة والسبب، وإعادة المحاولة مستمرة.
+          const saved = (await session?.flush()) ?? true;
+          if (!saved) {
+            fail(
+              "لم يُغلَق Luma: نصّك لم يصل القرص بعد",
+              "نصّك محفوظ في الذاكرة والمحاولة مستمرة. أفرغ مساحة على القرص أو تحقّق من الأذونات، ثم أغلق مرة أخرى.",
+            );
+            // المزلاج في النواة يُفتح، وإلا مرّت المحاولة التالية بلا
+            // حفظ أصلًا فأُغلق التطبيق على النص نفسه الذي رفضنا فقده.
+            await call("close_declined");
+            return;
+          }
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           await getCurrentWindow().destroy();
         }),
@@ -609,18 +710,32 @@
       }
     }
     editor.focus();
+    marks["restored"] = performance.now();
 
     if (selftest) {
       try {
         const { runSelfTest } = await import("./dev/selftest");
-        const checks = await runSelfTest(editor, host, call);
+        const checks = await runSelfTest(editor, host, call, startupMarks());
+        // رقم المرحلة من البيئة لا من الكود: كان مثبَّتًا فكتب «٥» في
+        // ملف أدلة المرحلة ٦.
+        const phase = Number(await call<string>("selftest_phase")) || null;
+        const failed = checks.filter((c) => !c.passed).length;
         await call("write_report", {
-          json: JSON.stringify({ phase: 5, checks }, null, 2),
+          json: JSON.stringify(
+            { phase, passed: checks.length - failed, failed, checks },
+            null,
+            2,
+          ),
         });
       } catch (e) {
         await call("write_report", {
           json: JSON.stringify(
-            { phase: 5, error: String(e), stack: (e as Error)?.stack },
+            {
+              phase: Number(await call<string>("selftest_phase")) || null,
+              failed: -1,
+              error: String(e),
+              stack: (e as Error)?.stack,
+            },
             null,
             2,
           ),
@@ -698,6 +813,7 @@
     wordCount={count}
     showWordCount={prefs.showWordCount}
     {comfort}
+    inert={settings}
     zenHidden={comfort && prefs.zenEnabled && zenHidden}
     typewriterBand={comfort && prefs.typewriterEnabled}
     bind:host={hostEl}
@@ -755,6 +871,9 @@
     {/snippet}
 
     {#snippet notice()}
+      {#if problem}
+        <Alert kind="critical" title={problem.title} detail={problem.detail} />
+      {/if}
       {#if previewAt !== null}
         <Alert
           kind="info"
@@ -782,6 +901,7 @@
       onchange={setPref}
       onpickfont={() => (fontSheet = true)}
       onclose={closeSettings}
+      inert={fontSheet}
     />
     {#if fontSheet}
       <FontSheet
@@ -791,12 +911,14 @@
         error={fontError}
         onselect={chooseFont}
         onimport={importFont}
-        onclose={() => (fontSheet = false)}
+        onclose={closeFontSheet}
       />
     {/if}
   {/if}
 
-  {#if selection}
+  <!-- شريط التحديد يعلو كل شيء بـ`fixed`، فلا يكفي أن يصير الإطار
+       `inert` تحته: يُشرَط بالشاشة نفسها. -->
+  {#if selection && !settings}
     <div
       class="floating"
       style:top="{selection.top}px"

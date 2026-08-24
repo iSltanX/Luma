@@ -22,7 +22,15 @@
     color: var(--text-primary); text-align: start;
   }
   .row:hover { background: var(--surface-sunken); }
-  .row.active { background: var(--accent-subtle); color: var(--accent-text); }
+  /* `accent/subtle` على السطح ١٫١٠–١٫٢٥:١ — فارقٌ لا يكاد يُدرَك، فلا
+     يبقى من «النشط» إلا لون النص: معنًى باللون وحده (§١٧ مبدأ ٩). حدّ
+     `accent/graphic` إشارةُ شكلٍ فوق ٣:١، وهي الإشارة نفسها التي
+     تستعملها `ThemeCard` و`ToggleChip` أصلًا. */
+  .row.active {
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+    box-shadow: inset 0 0 0 1px var(--accent-graphic);
+  }
   .row:focus-visible {
     outline: var(--size-focus-ring) solid var(--accent-graphic);
     outline-offset: var(--size-focus-offset);

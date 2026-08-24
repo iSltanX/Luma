@@ -7,6 +7,59 @@ use std::fs::{self, File};
 use std::io::{self, Write};
 use std::path::Path;
 
+/// `ENOSPC` — «لا مساحة على الجهاز». الرقم نفسه على macOS وLinux.
+const ENOSPC: i32 = 28;
+
+/// حقن فشل للاختبار — `LUMA_FAIL_WRITES=1`.
+///
+/// **يقع هنا لا فوق النواة.** كان الفحص في طبقة الأوامر فيعود الخطأ
+/// قبل أن تُلمس النواة أصلًا: يختبر أن الواجهة تعرض «تعذّر الحفظ»،
+/// ولا يختبر شيئًا مما يُفترض أن يحميه المسار — أن المؤقت يُنظَّف،
+/// وأن الملف السليم يبقى، وأن اللقطة لا تُنشأ لحالة لم تُكتب. هنا
+/// يمرّ الفشل من حيث يمرّ فشل القرص الحقيقي.
+fn writes_are_forced_to_fail() -> bool {
+    fail_on_this_thread() || env_forces_failure()
+}
+
+/// متغيّر البيئة يُقرأ مرة واحدة: هو ثابت طوال عمر العملية، وقراءته
+/// مع كل كتابة عملٌ على مسار ساخن بلا فائدة.
+fn env_forces_failure() -> bool {
+    static FORCED: std::sync::OnceLock<bool> = std::sync::OnceLock::new();
+    *FORCED.get_or_init(|| std::env::var("LUMA_FAIL_WRITES").is_ok_and(|v| v == "1"))
+}
+
+thread_local! {
+    /// حقن على مستوى **الخيط** — للاختبار وحده.
+    ///
+    /// `set_var` يغيّر بيئة العملية كلها، و`cargo test` يوازي
+    /// الاختبارات في خيوط: فحقنُ الفشل في اختبارٍ أسقط خمسة اختبارات
+    /// بريئة كانت تكتب في اللحظة نفسها. لكل خيط اختبارٍ حقنُه.
+    static FAIL_HERE: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+fn fail_on_this_thread() -> bool {
+    FAIL_HERE.with(|c| c.get())
+}
+
+/// يشغّل حقن الفشل على هذا الخيط وحده ويعيده إلى ما كان عند الإفلات.
+#[cfg(test)]
+pub(crate) struct FailWrites;
+
+#[cfg(test)]
+impl FailWrites {
+    pub(crate) fn on() -> Self {
+        FAIL_HERE.with(|c| c.set(true));
+        Self
+    }
+}
+
+#[cfg(test)]
+impl Drop for FailWrites {
+    fn drop(&mut self) {
+        FAIL_HERE.with(|c| c.set(false));
+    }
+}
+
 /// يكتب البايتات ذرّيًا: ملف مؤقت في **المجلد نفسه**، ثم `fsync`، ثم استبدال.
 ///
 /// المؤقت في المجلد نفسه شرط لا تفصيل: `rename` لا يكون ذرّيًا عبر
@@ -28,6 +81,15 @@ pub fn write_atomic(path: &Path, bytes: &[u8]) -> io::Result<()> {
     let result = (|| -> io::Result<()> {
         let mut f = File::create(&tmp)?;
         f.write_all(bytes)?;
+        if writes_are_forced_to_fail() {
+            // بعد إنشاء المؤقت وقبل الاستبدال: أخطر لحظة، وهي لحظة
+            // القرص الممتلئ تحديدًا
+            // خطأ النظام نفسه لا محاكاته: `ENOSPC` هو ما يعيده القرص
+            // الممتلئ فعلًا، فيمرّ بمسار المعالجة نفسه حرفيًّا.
+            // (`ErrorKind::StorageFull` مستقرّ من ١٫٨٣ والحدّ الأدنى
+            // هنا ١٫٨٢، والرقم الخام يعطي المعنى نفسه بلا رفع الحدّ.)
+            return Err(io::Error::from_raw_os_error(ENOSPC));
+        }
         f.sync_all()?;
         drop(f);
         fs::rename(&tmp, path)?;
@@ -111,6 +173,31 @@ mod tests {
 
         // الملف السليم لم يُمسّ
         assert_eq!(fs::read(&p).unwrap(), "سليم".as_bytes());
+        fs::remove_dir_all(&d).ok();
+    }
+
+    /// مسار القرص الممتلئ: المؤقت يُنظَّف، والسليم يبقى، ولا بقايا.
+    #[test]
+    fn a_full_disk_leaves_the_good_file_and_no_leftovers() {
+        let d = tmpdir("enospc");
+        let p = d.join("a.json");
+        write_atomic(&p, "نصٌّ سليم".as_bytes()).unwrap();
+
+        let err = {
+            let _fail = FailWrites::on();
+            write_atomic(&p, "نصٌّ جديد".as_bytes()).unwrap_err()
+        };
+
+        assert_eq!(err.raw_os_error(), Some(ENOSPC), "ليس خطأ قرص ممتلئ");
+        // الملف السليم لم يُمسّ — §١٧ مبدأ ٢
+        assert_eq!(fs::read(&p).unwrap(), "نصٌّ سليم".as_bytes());
+        // ولا مؤقت متروك
+        let leftovers: Vec<_> = fs::read_dir(&d)
+            .unwrap()
+            .filter_map(|e| e.ok())
+            .filter(|e| e.file_name().to_string_lossy().contains(".tmp"))
+            .collect();
+        assert!(leftovers.is_empty(), "بقي مؤقت بعد الفشل: {leftovers:?}");
         fs::remove_dir_all(&d).ok();
     }
 

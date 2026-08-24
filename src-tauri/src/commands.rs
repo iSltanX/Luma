@@ -31,15 +31,6 @@ impl Storage {
     }
 }
 
-/// حقن فشل للاختبار — `LUMA_FAIL_WRITES=1`.
-///
-/// موجود ليُختبر مسار الفشل نفسه: أن يبقى البُفر، وألّا يُستبدل ملف
-/// سليم، وأن تظهر «تعذّر الحفظ». اختبار الحالة المثالية وحدها لا يكفي
-/// — §١٣.
-fn writes_are_forced_to_fail() -> bool {
-    std::env::var("LUMA_FAIL_WRITES").is_ok_and(|v| v == "1")
-}
-
 fn to_message(e: StoreError) -> String {
     e.to_string()
 }
@@ -71,10 +62,6 @@ pub fn save_document(
     storage: State<'_, Storage>,
     payload: SavePayload,
 ) -> Result<SaveResult, String> {
-    if writes_are_forced_to_fail() {
-        return Err("تعذّر الحفظ: فشل مُحقَن للاختبار".into());
-    }
-
     let docs = storage.docs();
     let now = now_ms();
 
@@ -196,6 +183,46 @@ pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
     Ok(removed)
 }
 
+/// يبذر مكتبة اصطناعية لقياس «زمن فتح مستند من مكتبة كبيرة». أداة قياس.
+///
+/// **كل معرّف يبدأ بـ`selftest-`** فيمحوها `cleanup_selftest` كاملةً،
+/// ولا تختلط بمستندات المستخدم ولا تسبقها في الاستئناف.
+#[tauri::command]
+pub fn seed_library(
+    storage: State<'_, Storage>,
+    count: usize,
+    words: usize,
+) -> Result<usize, String> {
+    let docs = storage.docs();
+    let now = now_ms();
+    // فقرة عربية واقعية: التسلسل والتشكيل يغيّران حجم البايتات فعلًا
+    let sentence = "الكتابة فعل هادئ لا يحتمل الضجيج، وكل ما يزاحم النص يسرق منه شيئًا ";
+    let per = sentence.split_whitespace().count();
+    let body = sentence.repeat(words.div_ceil(per).max(1));
+
+    let mut made = 0;
+    for i in 0..count {
+        let id = format!("{SELFTEST_PREFIX}lib-{i:05}");
+        let doc = Document {
+            schema_version: crate::storage::model::SCHEMA_VERSION,
+            id: id.clone(),
+            title: Some(format!("مستند قياس {i}")),
+            blocks: vec![Block {
+                id: format!("b-{i}"),
+                role: "body".into(),
+                text: body.clone(),
+            }],
+            created_at: now,
+            updated_at: now - i as i64,
+            last_opened_at: now - i as i64,
+        };
+        if docs.save(&doc).is_ok() {
+            made += 1;
+        }
+    }
+    Ok(made)
+}
+
 // ── السجل الزمني ─────────────────────────────────────────────
 
 #[tauri::command]
@@ -271,9 +298,7 @@ pub fn save_preferences(
     storage: State<'_, Storage>,
     value: serde_json::Value,
 ) -> Result<(), String> {
-    if writes_are_forced_to_fail() {
-        return Err("تعذّر حفظ التفضيلات: فشل مُحقَن للاختبار".into());
-    }
+    // حقن الفشل يقع داخل `write_atomic` — مصدرٌ واحد لا فحصان.
     storage.prefs().save(&value).map_err(to_message)
 }
 

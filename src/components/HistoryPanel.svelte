@@ -63,7 +63,8 @@
         hint="يحتفظ Luma بمراحل النص تلقائيًا كلما تقدّمت الكتابة."
       />
     {:else}
-      <ul class="list">
+      <!-- `role="list"` صريح — الشرح في `LibraryPanel`. -->
+      <ul class="list" role="list">
         <li>
           <RevisionRow
             label="الآن — النسخة الحالية"

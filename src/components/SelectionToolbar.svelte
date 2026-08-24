@@ -132,9 +132,12 @@
     background: var(--surface-sunken);
     color: var(--text-primary);
   }
+  /* إشارة شكل مع اللون — الشرح في `NavRow`. والحدّ الداخلي يتمايز عن
+     حلقة التركيز: تلك خارجية بإزاحة ٢px. */
   .tool.on {
     background: var(--accent-subtle);
     color: var(--accent-text);
+    box-shadow: inset 0 0 0 1px var(--accent-graphic);
   }
   .tool:focus-visible {
     outline: var(--size-focus-ring) solid var(--accent-graphic);

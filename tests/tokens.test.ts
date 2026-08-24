@@ -196,13 +196,108 @@ const PAIRS: ReadonlyArray<[string, string, number, string]> = [
   ["state/caution", "state/caution-bg", 4.5, "حالة تحذير على تظليلها"],
   ["state/critical", "state/critical-bg", 4.5, "حالة خطأ على تظليلها"],
   ["state/info", "state/info-bg", 4.5, "حالة معلومة على تظليلها"],
+  ["text/secondary", "accent/subtle", 4.5, "نص ثانوي على الصف المحدَّد"],
+  ["text/primary", "surface/sunken", 4.5, "نص على السطح الغائر (تمرير)"],
+  ["text/secondary", "surface/sunken", 4.5, "نص ثانوي على السطح الغائر"],
   // رسوميات وحدود: ٣:١
   ["accent/graphic", "surface/canvas", 3, "الرسوميات وحلقة التركيز على الخلفية"],
   ["accent/graphic", "surface/paper", 3, "الرسوميات على الورقة"],
+  ["accent/graphic", "surface/raised", 3, "الرسوميات وحلقة التركيز على سطح مرتفع"],
+  ["accent/graphic", "surface/sunken", 3, "الرسوميات على السطح الغائر"],
   ["border/control", "surface/paper", 3, "حدّ عنصر التحكم على الورقة"],
   ["border/control", "surface/canvas", 3, "حدّ عنصر التحكم على الخلفية"],
   ["border/control", "surface/raised", 3, "حدّ عنصر التحكم على سطح مرتفع"],
+  // علامة الاختيار رسمٌ لا نص: عتبتها ٣:١ — WCAG 1.4.11
+  ["text/on-accent", "accent/graphic", 3, "علامة الاختيار فوق تعبئة اللمسة"],
 ];
+
+/**
+ * أزواج تُرسم فعلًا ولا تُفرض — **بقرار مكتوب لا بسهو**.
+ *
+ * القائمة أعلاه كانت يدويةً بلا حارس يكشف ما يفلت منها، فمرّت سبعة
+ * أزواج مرسومة في المكوّنات بلا فحص واحد. الحارس أدناه يشتقّ الأزواج
+ * من الكود، وهذا الاستثناء هو ما يُخرَج منه صراحةً ومعه سببه.
+ */
+const ACCEPTED: ReadonlyArray<[string, string, string]> = [
+  [
+    "border/control",
+    "surface/sunken",
+    "الحافة الداخلية للحقل والمسار: ٢٫٨٢:١ على التعبئة الغائرة. " +
+      "وWCAG 1.4.11 يطلب ٣:١ لما **يعرّف** العنصر، والذي يعرّفه هو حدّه " +
+      "على السطح المحيط (٣٫١٩–٤٫٠١ — مفروضة أعلاه)، لا حافته على تعبئته.",
+  ],
+  [
+    "text/on-accent",
+    "surface/paper",
+    "صندوق خانة الاختيار **غير المحدَّدة**: يحمل لون العلامة استعدادًا " +
+      "لها، ولا علامة تُرسم قبل التحديد (`{#if checked}`). وحين تُرسم " +
+      "تكون التعبئة `accent/graphic` — وذاك الزوج مفروض أعلاه. أثرُ " +
+      "قراءةٍ ساكنة للقاعدة، لا زوجٌ يقع على الشاشة.",
+  ],
+  [
+    "text/on-accent",
+    "state/critical",
+    "الزر المتلف: نصّ فوق تعبئة `state/critical`. لا إجراء متلفًا في " +
+      "Luma («لا حذف» — `Luma.md` §٦)، والمكوّن غير مستعمل في أي شاشة.",
+  ],
+];
+
+/**
+ * حارس الاكتمال — **يشتقّ الأزواج من الكود لا من قائمة يدوية**.
+ *
+ * §١٥: «فحص تباين آلي لكل زوج رمز». وقائمةٌ يكتبها إنسان تنسى، وقد
+ * نسيت: `accent/graphic` تعبئةً خلف نص الزر الأساسي عند التمرير
+ * (٣٫٦٠:١) بقيت سنةً خارج الفحص. هذا الحارس يقرأ كل قاعدة CSS تضبط
+ * `color` و`background` معًا من رمزين، ويسقط إن وجد زوجًا لا في
+ * `PAIRS` ولا في `ACCEPTED` — فالنسيان يصير خطأ بناء لا مفاجأة إصدار.
+ *
+ * ما لا يلتقطه: الزوج الموروث (لون هنا وخلفية على السلف). ذاك يبقى في
+ * `PAIRS` يدويًّا، وهو سبب بقائها.
+ */
+describe("لا زوج مرسوم خارج الفحص", () => {
+  /** `--text-primary` ← `text/primary`. الاشتقاق عكسي من أسماء الأدوار. */
+  const roleOf = new Map(
+    COLOR_ROLES.map((r) => [`--${r.replace(/\//g, "-")}`, r]),
+  );
+
+  const guarded = new Set([
+    ...PAIRS.map(([fg, bg]) => `${fg}|${bg}`),
+    ...ACCEPTED.map(([fg, bg]) => `${fg}|${bg}`),
+  ]);
+
+  it("كل قاعدة تضبط اللون والخلفية معًا زوجُها مفروض", () => {
+    const unguarded = new Set<string>();
+    for (const file of files(SRC, [".css", ".svelte"])) {
+      const text = readFileSync(file, "utf8");
+      for (const m of text.matchAll(/\{([^{}]*)\}/g)) {
+        const body = m[1] ?? "";
+        const fg = body.match(/(?:^|[;\s])color:\s*var\((--[\w-]+)\)/);
+        const bg = body.match(
+          /(?:^|[;\s])background(?:-color)?:\s*var\((--[\w-]+)\)/,
+        );
+        if (!fg || !bg) continue;
+        const a = roleOf.get(fg[1]!);
+        const b = roleOf.get(bg[1]!);
+        if (!a || !b) continue;
+        if (!guarded.has(`${a}|${b}`)) {
+          unguarded.add(`${a} على ${b}  ‹${file.slice(SRC.length + 1)}›`);
+        }
+      }
+    }
+    expect(
+      [...unguarded],
+      "زوج يُرسم ولا يُفحص — أضِفه إلى PAIRS أو إلى ACCEPTED بسببه",
+    ).toEqual([]);
+  });
+
+  it("كل استثناء يحمل سببًا مكتوبًا", () => {
+    for (const [fg, bg, why] of ACCEPTED) {
+      expect(COLOR_VALUES[fg], `${fg} ليس رمزًا`).toBeDefined();
+      expect(COLOR_VALUES[bg], `${bg} ليس رمزًا`).toBeDefined();
+      expect(why.length, `${fg}/${bg} بلا سبب`).toBeGreaterThan(40);
+    }
+  });
+});
 
 describe("تباين الرموز في الثيمات الخمسة", () => {
   it.each(THEME_IDS.map((t) => [t]))("ثيم %s يجتاز كل الأزواج", (themeId) => {

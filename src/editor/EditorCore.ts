@@ -299,6 +299,10 @@ export class EditorCore {
     this.editable = enabled;
     // `editable` دالة تُستشار عند كل محاولة تحرير، فتكفي إعادة الرسم
     view.setProps({ editable: () => this.editable });
+    // **قارئ الشاشة يسمع ما يراه المُبصر.** المعاينة تُظهر تنبيهًا
+    // «للقراءة فقط»، وكانت مساحة النص تبقى تُعلن نفسها قابلة للتحرير:
+    // من يقرأ بالصوت يحاول الكتابة ولا يفهم لماذا لا شيء يحدث — §١٣.
+    view.dom.setAttribute("aria-readonly", enabled ? "false" : "true");
   }
 
   get isEditable(): boolean {

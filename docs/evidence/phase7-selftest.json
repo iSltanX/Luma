@@ -1,0 +1,271 @@
+{
+  "phase": 7,
+  "passed": 44,
+  "failed": 0,
+  "checks": [
+    {
+      "id": "caret-rtl",
+      "name": "المؤشر يتقدّم يسارًا في النص العربي",
+      "passed": true,
+      "detail": "البداية x=1038 والنهاية x=0 — تحرّك 1038px يسارًا"
+    },
+    {
+      "id": "line-rtl",
+      "name": "السطر العربي يبدأ من الحافة اليمنى",
+      "passed": true,
+      "detail": "بداية النص على بُعد 1px من يمين الفقرة"
+    },
+    {
+      "id": "undo-burst",
+      "name": "تراجع واحد يزيل دفقة كتابة",
+      "passed": true,
+      "detail": "أزال 32 من 32 حرفًا"
+    },
+    {
+      "id": "undo-groups",
+      "name": "التوقف يبدأ دفقة تراجع جديدة",
+      "passed": true,
+      "detail": "بعد تراجع واحد بقي: «الجملة الأولى»"
+    },
+    {
+      "id": "focus-purity",
+      "name": "التركيز لا يغيّر المحتوى",
+      "passed": true,
+      "detail": "المحتوى مطابق"
+    },
+    {
+      "id": "font-change",
+      "name": "تغيير الحجم يحفظ المؤشر ولا يمسّ المحتوى",
+      "passed": true,
+      "detail": "المؤشر باقٍ والمحتوى مطابق"
+    },
+    {
+      "id": "paste",
+      "name": "اللصق ينظّف محارف الاتجاه ولا يُدخل تنسيقًا",
+      "passed": true,
+      "detail": "«بِسْمِ اللَّهِ — كتبت hello للعالم «اقتباس» ١٢٣» — اتجاه:نظيف تنسيق:لا"
+    },
+    {
+      "id": "typography",
+      "name": "التتبّع صفر وارتفاع السطر صريح ولا نص عربي دون ١٢ نقطة",
+      "passed": true,
+      "detail": "تتبّع normal — ارتفاع 36.099998px — مخالفات الحجم: لا شيء"
+    },
+    {
+      "id": "long-doc",
+      "name": "مستند ٢٠ ألف كلمة",
+      "passed": true,
+      "detail": "20143 كلمة — بناء 309ms، حرف p50 3ms / p95 7ms"
+    },
+    {
+      "id": "theme-switch",
+      "name": "تبديل الثيم يحفظ المؤشر والتمرير والمحتوى",
+      "passed": true,
+      "detail": "5/5 خلفيات متمايزة — تمرير 400→400 — المؤشر ثابت — المحتوى مطابق"
+    },
+    {
+      "id": "sheet-continuous",
+      "name": "الورقة تحيط بالنص كاملًا",
+      "passed": true,
+      "detail": "الورقة 11742px والمحرر 11361px — لا فيض"
+    },
+    {
+      "id": "single-scroller",
+      "name": "مسؤول تمرير واحد لا طبقات مكررة",
+      "passed": true,
+      "detail": "scroller"
+    },
+    {
+      "id": "sheet-scroll",
+      "name": "النص يبقى داخل الورقة عند التمرير",
+      "passed": true,
+      "detail": "البداية والوسط والنهاية سليمة"
+    },
+    {
+      "id": "selection-ancestors",
+      "name": "لا سلف بـuser-select:none يحيط بالمحرر",
+      "passed": true,
+      "detail": "السلسلة نظيفة"
+    },
+    {
+      "id": "selection-lines",
+      "name": "التحديد يتبع الأسطر",
+      "passed": true,
+      "detail": "130 مستطيلًا، أطولها 21px"
+    },
+    {
+      "id": "sheet-visible",
+      "name": "الورقة متمايزة عن الخلفية في الثيمات الخمسة",
+      "passed": true,
+      "detail": "متمايزة في الخمسة"
+    },
+    {
+      "id": "measure",
+      "name": "عمود الكتابة داخل ٥٢٠–٨٠٠ ويستفيد من العرض",
+      "passed": true,
+      "detail": "العمود 800px ويشغل 70٪ من العرض"
+    },
+    {
+      "id": "persist-roundtrip",
+      "name": "الحفظ والقراءة يحفظان النص العربي كما هو",
+      "passed": true,
+      "detail": "العنوان المشتقّ: «في الهدوء»"
+    },
+    {
+      "id": "empty-not-persisted",
+      "name": "مساحة فارغة لا تُحفظ ولا تظهر في المكتبة",
+      "passed": true,
+      "detail": "لا ضجيج في المكتبة"
+    },
+    {
+      "id": "restore-guard",
+      "name": "الاستعادة تحفظ الحالة الحالية أولًا",
+      "passed": true,
+      "detail": "اللقطتان في السجل (3) وشبكة الأمان محفوظة"
+    },
+    {
+      "id": "window-controls",
+      "name": "حالة الحفظ في الطرف المقابل لأزرار النظام",
+      "passed": true,
+      "detail": "الأزرار يمينًا — حالة الحفظ على بُعد 20px من اليسار و1260px من اليمين"
+    },
+    {
+      "id": "panel-open",
+      "name": "فتح لوحة لا يمسّ الورقة ولا التمرير ولا سطر المؤشر",
+      "passed": true,
+      "detail": "اللوحة 320px — الورقة 880→880 — ارتفاع المحتوى 11794→11794 — التمرير 400→400 — سطر المؤشر ثابت"
+    },
+    {
+      "id": "panel-escape",
+      "name": "Esc يغلق اللوحة ويعيد التركيز إلى النص",
+      "passed": true,
+      "detail": "أُغلقت، والتركيز في النص"
+    },
+    {
+      "id": "single-panel",
+      "name": "لوحة واحدة مفتوحة في كل وقت",
+      "passed": true,
+      "detail": "عدد اللوحات 1 — المفتوحة: history"
+    },
+    {
+      "id": "preview-readonly",
+      "name": "المعاينة قراءة فقط لا تقبل حرفًا",
+      "passed": true,
+      "detail": "النص لم يتغيّر"
+    },
+    {
+      "id": "comfort-focus",
+      "name": "التركيز يخفت المحيط ولا يغيّر بايتًا",
+      "passed": true,
+      "detail": "خُفِّتت 11 فقرة، والمحتوى مطابق"
+    },
+    {
+      "id": "prefs-display-only",
+      "name": "تغيير الحجم والعرض يظهر فورًا ولا يمسّ المحتوى",
+      "passed": true,
+      "detail": "الحجم 26px والعمود 560px — المحتوى مطابق"
+    },
+    {
+      "id": "prefs-keep-caret",
+      "name": "تغيير الحجم والعرض يحفظ المؤشر والتمرير",
+      "passed": true,
+      "detail": "المؤشر باقٍ — التمرير 300→300"
+    },
+    {
+      "id": "fonts-enumerated",
+      "name": "خطوط النظام تُعدَّد بأسمائها وتُقرأ تغطيتها",
+      "passed": true,
+      "detail": "206 عائلة نظام — 35 بتغطية عربية كاملة و171 بلا عربية"
+    },
+    {
+      "id": "fonts-usable",
+      "name": "خط النظام يصل طبقة العرض فعلًا",
+      "passed": true,
+      "detail": "«Al Bayan» يرسم النص بعرض 254px مقابل 361px لـAlmarai"
+    },
+    {
+      "id": "budget-open",
+      "name": "زمن الفتح حتى مؤشر قابل للكتابة",
+      "passed": true,
+      "detail": "408.871ms من 1200ms — surface 332.871ms · prefs 342.871ms · fonts 405.871ms · restored 408.871ms — بلا استئناف"
+    },
+    {
+      "id": "budget-keystroke",
+      "name": "زمن ظهور الحرف (p95) على مستند ٢٠ ألف كلمة",
+      "passed": true,
+      "detail": "7ms من 16ms — p50 3ms"
+    },
+    {
+      "id": "budget-build",
+      "name": "زمن بناء مستند ٢٠ ألف كلمة في المحرر",
+      "passed": true,
+      "detail": "304ms من 600ms — 20000 كلمة"
+    },
+    {
+      "id": "budget-keystroke-comfort",
+      "name": "زمن ظهور الحرف (p95) والآلة الكاتبة والتركيز مفعَّلان",
+      "passed": true,
+      "detail": "9ms من 16ms — p50 3ms"
+    },
+    {
+      "id": "budget-doc-size",
+      "name": "حدّ حجم المستند المدعوم",
+      "passed": true,
+      "detail": "20143 كلمة — الكتابة عندها p95 7ms"
+    },
+    {
+      "id": "budget-save",
+      "name": "زمن حفظ تعديل نموذجي",
+      "passed": true,
+      "detail": "9ms من 100ms — وسيط ٥ حفظات على 60 كتلة"
+    },
+    {
+      "id": "budget-library-open",
+      "name": "زمن فتح مستند من مكتبة كبيرة",
+      "passed": true,
+      "detail": "28ms من 200ms — تعداد 28ms وفتح 9ms من 507 مستندًا"
+    },
+    {
+      "id": "budget-library-size",
+      "name": "حدّ عدد المستندات المدعوم",
+      "passed": true,
+      "detail": "500 مستندًا مبذورًا — التعداد عندها 28ms"
+    },
+    {
+      "id": "budget-memory",
+      "name": "نمو الذاكرة المقيمة في جلسة ممتدة",
+      "passed": true,
+      "detail": "0.313MB من 50MB — 126.297MB ← 126.609MB بعد ١٢ دورة"
+    },
+    {
+      "id": "inert-supported",
+      "name": "`inert` يمنع التركيز الجديد في WKWebView",
+      "passed": true,
+      "detail": "قابل للتركيز قبلها، ممتنع بعدها"
+    },
+    {
+      "id": "inert-existing-focus",
+      "name": "سلوك المنصة مع تركيزٍ قائم عند التعطيل — مسجَّل لا معتمَد عليه",
+      "passed": true,
+      "detail": "بعد التعطيل: التركيز أُسقط والكتابة رُفضت — ولذلك حاجزٌ ثانٍ في `App.svelte` لا يعتمد على هذا"
+    },
+    {
+      "id": "titlebar-single-row",
+      "name": "شريط النافذة صفٌّ واحد ولا يتدلّى منه شيء",
+      "passed": true,
+      "detail": "صفوف: 47px — خارج الشريط: 0"
+    },
+    {
+      "id": "selftest-isolation",
+      "name": "الفحص لا يكتب فوق مستندات المستخدم",
+      "passed": true,
+      "detail": "4 مستندًا كما هي"
+    },
+    {
+      "id": "selftest-cleanup",
+      "name": "الفحص لا يترك أثرًا في مكتبة المستخدم",
+      "passed": true,
+      "detail": "أُزيل 503 مستند فحص"
+    }
+  ]
+}

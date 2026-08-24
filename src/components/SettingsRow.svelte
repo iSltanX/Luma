@@ -1,16 +1,27 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
-  /** صف إعداد — ثلاثة أنواع (`114:382`): مفتاح، منزلق، قيمة. */
+  /**
+   * صف إعداد — ثلاثة أنواع (`114:382`): مفتاح، منزلق، قيمة.
+   *
+   * **التلميح يصل قارئ الشاشة.** الصف يحمل الشرح («يُطبَّق فورًا»،
+   * «بين ١٫٤ و٢٫٢») وعنصر التحكم يحمل الاسم وحده، فكان الشرح يُرى
+   * ولا يُسمع. `aria-describedby` على الوعاء يربطهما — §١٣.
+   */
   let { label, hint = "", control }:
     { label: string; hint?: string; control: Snippet } = $props();
+
+  /** معرّف فريد لكل صف: التلميحات كثيرة والمعرّف لا يتكرر. */
+  const hintId = `luma-hint-${crypto.randomUUID().slice(0, 8)}`;
 </script>
 
 <div class="row">
   <div class="text">
     <span class="label">{label}</span>
-    {#if hint}<span class="hint">{hint}</span>{/if}
+    {#if hint}<span class="hint" id={hintId}>{hint}</span>{/if}
   </div>
-  <div class="control">{@render control()}</div>
+  <div class="control" aria-describedby={hint ? hintId : undefined}>
+    {@render control()}
+  </div>
 </div>
 
 <style>

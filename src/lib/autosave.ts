@@ -46,7 +46,13 @@ export class Autosave<T> {
   private debounceTimer: ReturnType<typeof setTimeout> | null = null;
   private capTimer: ReturnType<typeof setTimeout> | null = null;
   private retryTimer: ReturnType<typeof setTimeout> | null = null;
-  private inFlight = false;
+  /**
+   * طابور الكتابة — **كتابة واحدة في كل لحظة**.
+   *
+   * كل طلب يُعلَّق على سابقه، فلا كتابتان متزامنتان على المسار نفسه،
+   * و`flush()` لا يُحلّ إلا بعد أن يفرغ ما قبله.
+   */
+  private queue: Promise<boolean> = Promise.resolve(true);
   private attempt = 0;
   private disposed = false;
 
@@ -81,23 +87,32 @@ export class Autosave<T> {
   /**
    * كتابة فورية — عند فقد التركيز أو الإغلاق أو تبديل المستند.
    *
-   * ينتظر انتهاء أي كتابة جارية ثم يكتب ما تبقّى، حتى لا يُغلق التطبيق
-   * على تغيير لم يصل القرص.
+   * **ينتظر أي كتابة جارية ثم يكتب ما تبقّى، ويُبلّغ بالنتيجة.**
+   * `true` يعني أن كل ما في البُفر وصل القرص.
+   *
+   * كان يعود فورًا إن وجد كتابةً جارية، ويبتلع الفشل ويُحلّ كأن شيئًا
+   * لم يكن. فمن ينتظره — فتحُ مستند آخر، أو معاينةُ نسخة، أو إغلاقُ
+   * النافذة — كان يمضي فيستبدل المحتوى وهو يظنّه محفوظًا. الاستبدال
+   * على وعدٍ كاذب هو بالضبط الطريق إلى فقد نصّ (§٥ **ثابت**).
    */
-  async flush(): Promise<void> {
-    if (this.disposed) return;
+  flush(): Promise<boolean> {
+    if (this.disposed) return Promise.resolve(this.pending === null);
     this.clearTimers();
+    this.queue = this.queue.then(
+      () => this.writePending(),
+      () => this.writePending(),
+    );
+    return this.queue;
+  }
 
-    if (this.inFlight) {
-      // كتابة جارية: ستلتقط `pending` بعد انتهائها
-      return;
-    }
-    if (this.pending === null) return;
+  /** كتابة واحدة لما في البُفر. لا تُستدعى إلا من داخل الطابور. */
+  private async writePending(): Promise<boolean> {
+    if (this.disposed) return this.pending === null;
 
     const payload = this.pending;
-    this.inFlight = true;
-    this.opts.onState({ kind: "saving" });
+    if (payload === null) return true;
 
+    this.opts.onState({ kind: "saving" });
     try {
       await this.opts.write(payload);
 
@@ -105,18 +120,19 @@ export class Autosave<T> {
       if (this.pending === payload) this.pending = null;
       this.attempt = 0;
       this.opts.onState({ kind: "saved", at: Date.now() });
+
+      // تغييرات وصلت أثناء الكتابة
+      if (this.pending !== null) {
+        this.debounceTimer = setTimeout(() => void this.flush(), DEBOUNCE_MS);
+      }
+      return true;
     } catch (e) {
       // البُفر يبقى كما هو: المحتوى لا يضيع لأن القرص رفض
       this.attempt += 1;
       const message = e instanceof Error ? e.message : String(e);
       this.opts.onState({ kind: "failed", message, attempt: this.attempt });
       this.scheduleRetry();
-    } finally {
-      this.inFlight = false;
-      // تغييرات وصلت أثناء الكتابة
-      if (this.pending !== null && this.attempt === 0) {
-        this.debounceTimer = setTimeout(() => void this.flush(), DEBOUNCE_MS);
-      }
+      return false;
     }
   }
 

@@ -54,7 +54,9 @@
       />
     {:else}
       <p class="label">النصوص الأخيرة</p>
-      <ul class="list">
+      <!-- `role="list"` صريح: `list-style: none` يُسقط دلالة القائمة
+           في WebKit، فلا يعلن VoiceOver «قائمة، ٧ عناصر». -->
+      <ul class="list" role="list">
         {#each shown as doc (doc.id)}
           <li>
             <DocumentRow {doc} {now} current={doc.id === currentId} {onopen} />

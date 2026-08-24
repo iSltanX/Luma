@@ -30,6 +30,7 @@
     wordCount = 0,
     showWordCount = false,
     comfort = false,
+    inert = false,
     zenHidden = false,
     typewriterBand = false,
     host = $bindable<HTMLElement | null>(null),
@@ -56,6 +57,15 @@
      * المؤشر والتحديد ومكدّس التراجع في كل دخول وخروج.
      */
     comfort?: boolean;
+    /**
+     * يُخرج الإطار كلّه من مسار التركيز ومن شجرة الوصول.
+     *
+     * تُرفع حين تعلوه شاشة تغطّي النافذة (الإعدادات). بدونها يبقى
+     * المحرر المحجوب أول محطات `Tab`، **وتصله الكتابة فعلًا** فيُكتب
+     * في مستند المستخدم وهو لا يراه — وهذا مسّ بسلامة النص قبل أن
+     * يكون مسألة وصول (§١٣، وثابت «سلامة النص أولًا»).
+     */
+    inert?: boolean;
     /** طبقة Zen: تتراجع العناصر أثناء الكتابة وتعود عند الحاجة. */
     zenHidden?: boolean;
     /** شريط نطاق الآلة الكاتبة (`123:80`). */
@@ -74,7 +84,7 @@
   );
 </script>
 
-<div class="shell" class:comfort>
+<div class="shell" class:comfort {inert}>
   {#if !comfort}
     <header class="titlebar luma-chrome" data-tauri-drag-region>
       <span class="title">{title}</span>
@@ -88,6 +98,16 @@
     <!-- شريط سحب النافذة يبقى: لا chrome نظام يُعاد رسمه، ولا نافذة
          تصير غير قابلة للتحريك لأن المستخدم دخل وضع كتابة — §٧. -->
     <div class="drag luma-chrome" data-tauri-drag-region></div>
+
+    {#if saveState.kind === "failed"}
+      <!-- **الفشل وحده يخترق المحرر المريح.** §٧ يخفي «المكتبة
+           والقوائم والأدوات»، ولا يخفي أن نصّك لم يصل القرص: ذاك ليس
+           أداة بل حالة النص نفسه، وسلامةُ النص تعلو كل خاصية ثانوية.
+           ولا يخفيه Zen: صمتٌ عن الفشل ليس هدوءًا. -->
+      <div class="fail luma-chrome" data-comfort-save-failed>
+        <SaveStatus state={saveState} />
+      </div>
+    {/if}
 
     {#if comfortExit}
       <!-- وسيلة الخروج **ظاهرة دائمًا** ولا تعتمد على حركة المؤشر
@@ -164,6 +184,11 @@
   }
   .title {
     grid-column: 2;
+    /* الصف صريح: الشبكة تضع العناصر بالترتيب ولا تعود إلى الوراء،
+       فالعنوان في العمود ٢ يدفع حالةَ الحفظ في العمود ١ إلى **صفّ
+       ثانٍ**. مُقاسًا: الشريط صار صفّين (٣٥٫٥px + ١١٫٥px) داخل ارتفاع
+       ٤٨ ثابت، فارتفع العنوان عن مركزه وانضغطت الحالة تحته. */
+    grid-row: 1;
     justify-self: center;
     font: var(--text-ui-07);
     letter-spacing: 0;
@@ -175,6 +200,7 @@
   }
   .save {
     grid-column: var(--luma-status-col);
+    grid-row: 1;
     justify-self: var(--luma-status-justify);
     display: flex;
     align-items: center;
@@ -274,6 +300,15 @@
   .drag {
     flex: none;
     block-size: var(--size-titlebar);
+  }
+
+  /* حالة الفشل داخل المحرر المريح — عند بداية القراءة، مقابل وسيلة
+     الخروج، فلا يتزاحمان. */
+  .fail {
+    position: absolute;
+    inset-block-start: var(--space-024);
+    inset-inline-start: var(--space-024);
+    z-index: 2;
   }
 
   /* لا ورقة في المحرر المريح: النص على السطح مباشرةً كما في الصفحة ١١.

@@ -41,6 +41,42 @@ for (const id of THEMES) {
   });
 }
 
+/**
+ * لقطات **شاشة منتج** في الثيمات الخمسة.
+ *
+ * اللقطات أعلاه تصوّر معرض التطوير — وهو لا يُشحن. فما ينكسر في
+ * المحرر نفسه أو في الإعدادات لا تراه لقطةٌ للمعرض. هذه تصوّر ما
+ * يراه المستخدم.
+ */
+for (const id of THEMES) {
+  test(`ثيم ${id} — المحرر`, async ({ page }) => {
+    await page.goto("/");
+    await page.evaluate((t) => {
+      document.documentElement.dataset["theme"] = t;
+    }, id);
+    await page.waitForTimeout(250);
+    await expect(page).toHaveScreenshot(`editor-${id}.png`, {
+      maxDiffPixelRatio: 0.01,
+      animations: "disabled",
+      // المؤشر يومض فيغيّر البكسلات بين لقطة وأخرى
+      caret: "hide",
+    });
+  });
+
+  test(`ثيم ${id} — الإعدادات`, async ({ page }) => {
+    await page.goto("/?settings=1");
+    await page.evaluate((t) => {
+      document.documentElement.dataset["theme"] = t;
+    }, id);
+    await page.waitForTimeout(250);
+    await expect(page).toHaveScreenshot(`settings-${id}.png`, {
+      maxDiffPixelRatio: 0.01,
+      animations: "disabled",
+      caret: "hide",
+    });
+  });
+}
+
 test("كل ثيم يعطي خلفية متمايزة", async ({ page }) => {
   const seen = new Set<string>();
   for (const id of THEMES) {
