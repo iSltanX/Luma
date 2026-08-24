@@ -1,0 +1,15 @@
+# التبعيات
+node_modules/
+
+# مخرجات البناء
+dist/
+src-tauri/target/
+
+# نظام التشغيل
+.DS_Store
+
+# محلي
+*.local
+.vite/
+test-results/
+playwright-report/
