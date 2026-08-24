@@ -39,7 +39,8 @@ test("لا مدخل مرسوم للإعدادات في المحرر — مدخل
 test("زر المحرر المريح عاد ومعه سلوكه", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(EDITOR);
-  const btn = page.locator("[data-comfort]");
+  // المدخل في شريط الأسطح لا عائمًا فوق الورقة — لئلا يعلو النص
+  const btn = page.locator("[data-comfort-entry] button");
   await expect(btn).toBeVisible();
   await expect(btn).toBeEnabled();
   await btn.click();

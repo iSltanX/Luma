@@ -9,7 +9,8 @@ import { test, expect, type Page } from "@playwright/test";
  */
 
 const EDITOR = ".luma-editor";
-const COMFORT = "[data-comfort]";
+// المدخل في شريط الأسطح لا عائمًا فوق الورقة
+const COMFORT = "[data-comfort-entry] button";
 
 /** يكتب مستندًا من فقرات مرقّمة يسهل تمييز النشطة منها. */
 async function longDoc(page: Page, paragraphs = 14) {

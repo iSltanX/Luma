@@ -152,6 +152,26 @@ export class EditorSession {
   }
 
   /**
+   * يبدأ نصًّا جديدًا — **بعد حفظ الحالي أولًا**.
+   *
+   * القاعدة نفسها التي يتبعها `open()`: لو لم يصل النص القرص لا
+   * يُستبدل شيء. والمستند الجديد لا يُنشأ هنا بل عند أول محتوى فعلي
+   * («بمجرد أول محتوى ينشأ المستند» — `Luma.md` §٤)، فمساحةٌ فارغة
+   * تُترك بلا كتابة لا تُخلّف ضجيجًا في المكتبة.
+   */
+  async startNew(): Promise<void> {
+    if (!(await this.flush())) {
+      throw new Error("تعذّر حفظ النص الحالي، فلم يُبدأ غيره");
+    }
+    this.documentId = null;
+    this.createdAt = null;
+    this.explicitTitle = null;
+    this.buffer = [];
+    this.editor.setBlocks([]);
+    this.onTitleChange?.(this.displayTitle());
+  }
+
+  /**
    * يتبنّى محتوى جاء من خارج المحرر — ناتج استعادة نسخة من السجل.
    *
    * النواة كتبته على القرص قبل أن يصل هنا (`restore_revision`)، ومع ذلك

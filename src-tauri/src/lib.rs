@@ -308,6 +308,7 @@ pub fn run() {
             memory_rss_kb,
             close_declined,
             commands::seed_library,
+            commands::open_project_page,
             commands::save_document,
             commands::load_document,
             commands::list_documents,

@@ -126,6 +126,49 @@ describe("الاستئناف لا يمحو ما كُتب قبله", () => {
   });
 });
 
+describe("بدء نصّ جديد", () => {
+  it("يفرّغ المساحة ويترك المستند السابق كما هو", async () => {
+    const e = fakeEditor([block("النص الأول")]);
+    const save = vi.fn().mockResolvedValue(undefined);
+    const s = session(e, { save });
+    s.handleChange([block("النص الأول")]);
+    expect(s.currentId).not.toBeNull();
+
+    await s.startNew();
+
+    expect(save).toHaveBeenCalled();
+    expect(e.blocks()).toEqual([]);
+    // مستندٌ جديد لا يُنشأ إلا عند أول محتوى — `Luma.md` §٤
+    expect(s.currentId).toBeNull();
+  });
+
+  it("فشل حفظ الحالي يمنع البدء ويُبقي النص", async () => {
+    const e = fakeEditor([block("نصّ حيّ")]);
+    const s = session(e, {
+      save: async () => {
+        throw new Error("القرص ممتلئ");
+      },
+    });
+    s.handleChange([block("نصّ حيّ")]);
+
+    await expect(s.startNew()).rejects.toThrow();
+    expect(e.blocks()[0]!.text).toBe("نصّ حيّ");
+  });
+
+  it("أول حرف بعد البدء يُنشئ مستندًا جديدًا لا يكتب فوق السابق", async () => {
+    const e = fakeEditor([block("النص الأول")]);
+    const s = session(e, {});
+    s.handleChange([block("النص الأول")]);
+    const first = s.currentId;
+
+    await s.startNew();
+    s.handleChange([block("النص الثاني")]);
+
+    expect(s.currentId).not.toBeNull();
+    expect(s.currentId).not.toBe(first);
+  });
+});
+
 describe("فتح مستند آخر لا يستبدل نصًّا لم يصل القرص", () => {
   it("فشل الحفظ يمنع الفتح ويُبقي المحتوى", async () => {
     const e = fakeEditor([block("نصّ حيّ")]);

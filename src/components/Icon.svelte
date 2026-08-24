@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { ICONS, type IconName } from "./icons";
+  import { ICONS, type IconDef, type IconName } from "./icons";
 
   /**
    * أيقونة ١٦×١٦ بلون موروث.
@@ -20,7 +20,9 @@
     size?: number;
   } = $props();
 
-  const def = $derived(ICONS[name]);
+  // مُوسَّع إلى `IconDef`: `as const` يجعل كل مدخل نوعًا حرفيًّا،
+  // فالحقول الاختيارية (`fill`) لا تظهر على من أغفلها.
+  const def: IconDef = $derived(ICONS[name]);
   const accessibleName = $derived(label ?? def.label);
 </script>
 
@@ -33,13 +35,22 @@
   aria-hidden={decorative ? "true" : undefined}
   aria-label={decorative ? undefined : accessibleName}
 >
-  <path
-    d={def.path}
-    stroke="currentColor"
-    stroke-width="1.4"
-    stroke-linecap={def.round ? "round" : "butt"}
-    stroke-linejoin={def.round ? "round" : "miter"}
-  />
+  <!--
+    علامةٌ مملوءة أو مرسومة بالحدّ. أكثر أيقونات Luma خطّية بحدٍّ ١٫٤،
+    وبعض العلامات الرسمية (GitHub) لا توجد إلا مملوءة — ورسمُها بالحدّ
+    تقليدٌ رديء لها.
+  -->
+  {#if def.fill}
+    <path d={def.path} fill="currentColor" />
+  {:else}
+    <path
+      d={def.path}
+      stroke="currentColor"
+      stroke-width="1.4"
+      stroke-linecap={def.round ? "round" : "butt"}
+      stroke-linejoin={def.round ? "round" : "miter"}
+    />
+  {/if}
 </svg>
 
 <style>

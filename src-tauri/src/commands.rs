@@ -223,6 +223,24 @@ pub fn seed_library(
     Ok(made)
 }
 
+/// عنوان المستودع — **الوحيد الذي يُفتح**، ولا يُقرأ من الواجهة.
+pub const PROJECT_URL: &str = "https://github.com/iSltanX";
+
+/// يفتح صفحة المشروع في متصفح النظام.
+///
+/// **Luma لا تتصل بشيء** ([ADR ٠٠١٥](../../docs/decisions/0015-no-telemetry.md)):
+/// العنوان يُسلَّم إلى النظام ليفتحه غيرُها، ولا يُطلب من داخلها ولا
+/// تُقرأ استجابة. والعنوان ثابتٌ في النواة لا يأتي من الواجهة، فلا
+/// يفتح هذا البابُ عنوانًا آخر مهما مرّرت الواجهة.
+#[tauri::command]
+pub fn open_project_page() -> Result<(), String> {
+    std::process::Command::new("/usr/bin/open")
+        .arg(PROJECT_URL)
+        .spawn()
+        .map(|_| ())
+        .map_err(|e| format!("تعذّر فتح صفحة المشروع: {e}"))
+}
+
 // ── السجل الزمني ─────────────────────────────────────────────
 
 #[tauri::command]

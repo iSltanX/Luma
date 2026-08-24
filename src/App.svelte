@@ -12,7 +12,6 @@
   import SelectionToolbar from "./components/SelectionToolbar.svelte";
   import SettingsScreen from "./components/SettingsScreen.svelte";
   import FontSheet from "./components/FontSheet.svelte";
-  import ComfortButton from "./components/ComfortButton.svelte";
   import ToggleChip from "./components/ToggleChip.svelte";
   import Button from "./components/Button.svelte";
   import Alert from "./components/Alert.svelte";
@@ -329,6 +328,30 @@
     }
   }
 
+  /**
+   * نصّ جديد — المسار الذي لم يكن موجودًا.
+   *
+   * يُغلق ما يزاحم ثم يفرّغ المساحة ويعيد التركيز إلى النص. والمستند
+   * لا يُنشأ إلا عند أول حرف يُكتب فيه.
+   */
+  async function newDocument() {
+    if (!session) return;
+    exitPreview();
+    try {
+      await session.startNew();
+    } catch (e) {
+      // فشل حفظ الحالي يمنع البدء — لا يُستبدل نصٌّ لم يصل القرص
+      fail("تعذّر بدء نصّ جديد", e);
+      return;
+    }
+    problem = null;
+    currentId = null;
+    count = 0;
+    surface = null;
+    await tick();
+    editor.focus();
+  }
+
   // ── المكتبة ────────────────────────────────────────────────
 
   async function openDocument(id: string) {
@@ -487,6 +510,16 @@
    * `inert` لحظةَ استدعاء `focus()`، فيسقط الطلب صامتًا ويضيع
    * التركيز إلى `<body>`. `tick()` ينتظر تطبيق التغيير.
    */
+  /** يفتح صفحة المشروع — النواة تفتحها بالنظام، ولا تتصل Luma بشيء. */
+  async function openProjectPage() {
+    if (!invoke) return;
+    try {
+      await invoke("open_project_page");
+    } catch (e) {
+      fail("تعذّر فتح صفحة المشروع", e);
+    }
+  }
+
   async function closeSettings() {
     settings = false;
     fontSheet = false;
@@ -810,6 +843,8 @@
     showSaveStatus={previewId === null}
     activeSurface={surface}
     ontoggle={toggleSurface}
+    onnew={newDocument}
+    oncomfort={enterComfort}
     wordCount={count}
     showWordCount={prefs.showWordCount}
     {comfort}
@@ -886,10 +921,6 @@
 
   <!-- زر المحرر المريح عائم في الزاوية — يعود في هذه المرحلة ومعه
        سلوكه: ⌃⌘F يفعل الشيء نفسه. -->
-  {#if !comfort && !settings}
-    <ComfortButton onclick={enterComfort} />
-  {/if}
-
   {#if settings}
     <SettingsScreen
       {prefs}
@@ -901,6 +932,7 @@
       onchange={setPref}
       onpickfont={() => (fontSheet = true)}
       onclose={closeSettings}
+      onproject={openProjectPage}
       inert={fontSheet}
     />
     {#if fontSheet}

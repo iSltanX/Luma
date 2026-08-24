@@ -67,7 +67,43 @@ export interface EditorCoreOptions {
   ariaLabel?: string;
 }
 
-/** طبقة التركيز: تخفيت الكتل غير النشطة **بلا لمس النموذج**. */
+/**
+ * حدود الجُمل العربية.
+ *
+ * النقطة والسؤال والتعجّب وثلاث نقاط — ومعها علامات الترقيم العربية:
+ * `؟` و`،` لا تُنهي جملة، لكن `.` و`؛` و`!` تفعل. والفاصلة تُترك عمدًا
+ * لأنها تفصل عبارات داخل الجملة الواحدة لا جملًا.
+ */
+const SENTENCE_END = /[.!؟?؛…]+[\s]*/g;
+
+/**
+ * حدود الجملة التي يقع فيها موضعٌ داخل نصّ.
+ *
+ * تُعاد بإزاحات داخل النص نفسه؛ ومن لا جملة فيه (فقرة بلا ترقيم) يعود
+ * بالفقرة كلها — وهو السلوك الصحيح: النص كتلةٌ واحدة فعلًا.
+ */
+function sentenceAt(text: string, pos: number): { start: number; end: number } {
+  let start = 0;
+  SENTENCE_END.lastIndex = 0;
+  let m: RegExpExecArray | null;
+  while ((m = SENTENCE_END.exec(text)) !== null) {
+    const end = m.index + m[0].length;
+    if (pos < end) return { start, end };
+    start = end;
+  }
+  return { start, end: text.length };
+}
+
+/**
+ * طبقة التركيز: تخفيت ما حول **الجملة** النشطة — بلا لمس النموذج.
+ *
+ * كانت تخفّت بحبيبة الفقرة، فمن يكتب فقرةً طويلة — وهو ما يفعله كاتب
+ * المقال — لا يرى فرقًا إطلاقًا: الفقرة كلها نشطة فلا يُخفَّت شيء.
+ * والحبيبة الصحيحة هي الجملة، و`Luma.md` §٧ يقول «يبرز **السطر** أو
+ * الفقرة الحالية» فيسعها.
+ *
+ * والتخفيت يبقى **مقروءًا** لا شبه مخفيّ — §٧ **ثابت**.
+ */
 function focusModePlugin(): Plugin<boolean> {
   return new Plugin<boolean>({
     key: focusKey,
@@ -83,13 +119,40 @@ function focusModePlugin(): Plugin<boolean> {
         if (!focusKey.getState(state)) return DecorationSet.empty;
         const { from, to } = state.selection;
         const decos: Decoration[] = [];
+
         state.doc.forEach((node, offset) => {
           const end = offset + node.nodeSize;
           const active = from < end && to > offset;
+
           if (!active) {
+            // كتلة بعيدة عن المؤشر: تُخفَّت كاملة
             decos.push(Decoration.node(offset, end, { class: "luma-dimmed" }));
+            return;
+          }
+
+          // الكتلة النشطة: يُخفَّت ما حول الجملة التي فيها المؤشر.
+          // `offset + 1` هو أول موضع نصّي داخل العقدة.
+          const text = node.textContent;
+          if (!text) return;
+          const inner = Math.max(0, Math.min(text.length, from - offset - 1));
+          const { start, end: sEnd } = sentenceAt(text, inner);
+
+          if (start > 0) {
+            decos.push(
+              Decoration.inline(offset + 1, offset + 1 + start, {
+                class: "luma-dimmed",
+              }),
+            );
+          }
+          if (sEnd < text.length) {
+            decos.push(
+              Decoration.inline(offset + 1 + sEnd, offset + 1 + text.length, {
+                class: "luma-dimmed",
+              }),
+            );
           }
         });
+
         return DecorationSet.create(state.doc, decos);
       },
     },

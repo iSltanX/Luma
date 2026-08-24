@@ -8,6 +8,7 @@
   import Alert from "./Alert.svelte";
   import Badge from "./Badge.svelte";
   import IconButton from "./IconButton.svelte";
+  import Icon from "./Icon.svelte";
   import { THEMES, type ThemeId } from "../tokens/themes";
   import { SECTIONS, type SettingsSectionId } from "../lib/settings";
   import { LIMITS, type Preferences } from "../lib/preferences.svelte";
@@ -33,6 +34,7 @@
     onchange,
     onpickfont,
     onclose,
+    onproject = () => {},
     inert = false,
   }: {
     prefs: Preferences;
@@ -44,6 +46,8 @@
     onchange: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
     onpickfont: () => void;
     onclose: () => void;
+    /** يفتح صفحة المشروع في متصفح النظام. */
+    onproject?: () => void;
     /** تُرفع حين تعلوها ورقة الخط، فتخرج من مسار التركيز — §١٣. */
     inert?: boolean;
   } = $props();
@@ -336,24 +340,58 @@
               {/snippet}
             </SettingsRow>
           </section>
+
+          <section class="group" aria-label="التحديثات">
+            <h2 class="group-label">التحديثات</h2>
+            <SettingsRow label="التحديث التلقائي" hint="">
+              {#snippet control()}
+                <Badge kind="positive">مفعّل</Badge>
+              {/snippet}
+            </SettingsRow>
+            <SettingsRow label="إصدار جديد" hint="يفتح صفحة الإصدارات في متصفحك">
+              {#snippet control()}
+                <Button kind="secondary" size="sm" onclick={onproject} data-check-updates>
+                  البحث عن تحديثات
+                </Button>
+              {/snippet}
+            </SettingsRow>
+          </section>
+
+          <section class="group" aria-label="صفحة المشروع">
+            <h2 class="group-label">صفحة المشروع</h2>
+            <button type="button" class="link-row" onclick={onproject} data-project-page>
+              <span class="link-icon"><Icon name="github" decorative size={18} /></span>
+              <span class="link-text">
+                <span class="link-title">صفحة المشروع</span>
+                <span class="link-url">{isolate("github.com/iSltanX")}</span>
+              </span>
+              <span class="link-go" aria-hidden="true">
+                <Icon name="back" decorative size={14} />
+              </span>
+            </button>
+          </section>
+
+          <section class="group" aria-label="المطور">
+            <h2 class="group-label">المطور</h2>
+            <div class="dev">
+              <!-- حرفٌ لا أيقونة: لا رمز في المجموعة يدلّ على شخص،
+                   واختراع واحدٍ لبطاقة واحدة أثقل من مونوغرام. -->
+              <span class="dev-mark" aria-hidden="true">س</span>
+              <span class="dev-text">
+                <span class="dev-ar">صُمم وطُوّر بواسطة سلطان</span>
+                <span class="dev-en">{isolate("Sultan — Design & Development")}</span>
+              </span>
+            </div>
+          </section>
+
           <section class="group" aria-label="الخصوصية">
             <h2 class="group-label">الخصوصية</h2>
-            <!--
-              ما يُكتب هنا **مفروضٌ لا موعود**: لا استحقاق شبكة في
-              الحزمة، وسياسة CSP تمنع الاتصال، ولا اعتمادية شبكة في
-              النواة — ويحرس الثلاثة `tests/release.test.ts`.
-              ADR ٠٠١٥. ولا بيان عن موضع معالجة الصوت — §١١ **ثابت**.
-            -->
             <p class="note">
               يُحفظ كل نص على جهازك. لا حساب ولا مزامنة سحابية ولا تتبّع، ولا
-              تُرسل نصوصك ولا خطوطك المستوردة إلى أي خدمة. و{isolate("Luma")}
-              لا تتصل بالشبكة إطلاقًا.
-            </p>
-            <p class="note">
-              ولا تحديث تلقائي: لا يفحص {isolate("Luma")} إصدارًا جديدًا ولا
-              يتصل بخادم. تنزيل النسخة الجديدة بيدك وحدك.
+              تُرسل نصوصك ولا خطوطك المستوردة إلى أي خدمة.
             </p>
           </section>
+
           <section class="group" aria-label="الخطوط والتراخيص">
             <h2 class="group-label">الخطوط والتراخيص</h2>
             <p class="note">
@@ -456,6 +494,77 @@
     display: flex;
     flex-direction: column;
     gap: var(--space-032);
+  }
+
+  /* ── بطاقة رابط وبطاقة مطوّر ───────────────────────────────
+     بلغة الشاشة نفسها: `صف إعداد` ارتفاعه ٦٤ وحدّه السفلي نفسه،
+     وألوانه رموز الثيم نفسها. لا مقاس جديد ولا لون جديد. */
+  .link-row,
+  .dev {
+    display: flex;
+    align-items: center;
+    gap: var(--space-012);
+    inline-size: 100%;
+    min-block-size: 64px;
+    padding-inline: var(--space-016);
+    border-block-end: 1px solid var(--border-subtle);
+    background: none;
+    text-align: start;
+  }
+  .link-row {
+    border-inline: none;
+    border-block-start: none;
+    cursor: pointer;
+    color: var(--text-primary);
+  }
+  .link-row:hover {
+    background: var(--surface-sunken);
+  }
+  .link-row:focus-visible {
+    outline: var(--size-focus-ring) solid var(--accent-graphic);
+    outline-offset: calc(var(--size-focus-offset) * -1);
+  }
+  .dev-mark {
+    font: var(--text-ui-06);
+    letter-spacing: 0;
+  }
+  .link-icon,
+  .dev-mark {
+    flex: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    inline-size: var(--size-hit);
+    block-size: var(--size-hit);
+    border-radius: var(--radius-sm);
+    background: var(--accent-subtle);
+    color: var(--accent-text);
+  }
+  .link-text,
+  .dev-text {
+    display: flex;
+    flex-direction: column;
+    gap: 2px;
+    min-inline-size: 0;
+  }
+  .link-title,
+  .dev-ar {
+    font: var(--text-ui-07);
+    letter-spacing: 0;
+    color: var(--text-primary);
+  }
+  .link-url,
+  .dev-en {
+    font: var(--text-ui-09);
+    letter-spacing: 0;
+    color: var(--text-muted);
+  }
+  /* السهم عند نهاية القراءة، ويشير إلى الخارج في RTL */
+  .link-go {
+    margin-inline-start: auto;
+    flex: none;
+    color: var(--text-muted);
+    transform: scaleX(-1);
   }
 
   .section-head {

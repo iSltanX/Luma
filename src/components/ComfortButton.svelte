@@ -31,8 +31,12 @@
   .comfort {
     position: absolute;
     inset-block-end: var(--space-024);
-    /* نهاية القراءة — الزاوية اليسرى في RTL */
-    inset-inline-end: var(--space-024);
+    /* نهاية القراءة — الزاوية اليسرى في RTL.
+       والإزاحة ٨ لا ٢٤: حافة عمود النص تقف عند ٧٢ من حافة مساحة
+       الكتابة (تحدّها حشوة الورقة المقيَّدة، ولا تتزحزح باتساع
+       النافذة)، فإزاحةُ ٢٤ تجعل الزر ينتهي عند ٨٠ — أي فوق العمود
+       بثمانية بكسلات. قِيس عند ١٠٢٤ واللوحة مفتوحة. */
+    inset-inline-end: var(--space-008);
     inline-size: var(--size-comfort);
     block-size: var(--size-comfort);
     display: inline-flex;

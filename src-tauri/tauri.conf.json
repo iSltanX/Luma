@@ -17,7 +17,7 @@
         "title": "Luma",
         "width": 1280,
         "height": 860,
-        "minWidth": 960,
+        "minWidth": 1024,
         "minHeight": 640,
         "resizable": true,
         "fullscreen": false,

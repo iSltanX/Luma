@@ -27,6 +27,8 @@
     showSaveStatus = true,
     activeSurface = null,
     ontoggle,
+    onnew,
+    oncomfort,
     wordCount = 0,
     showWordCount = false,
     comfort = false,
@@ -46,6 +48,10 @@
     showSaveStatus?: boolean;
     activeSurface?: SurfaceId | null;
     ontoggle: (id: string) => void;
+    /** بدء نصّ جديد — لا يُمرَّر في المحرر المريح فيختفي الزر. */
+    onnew?: (() => void) | undefined;
+    /** دخول المحرر المريح — لا يُمرَّر وهو مفتوح. */
+    oncomfort?: (() => void) | undefined;
     wordCount?: number;
     /** **مخفي افتراضيًا** ويظهر بطلب المستخدم — `Luma.md` §٥ **ثابت**. */
     showWordCount?: boolean;
@@ -93,7 +99,13 @@
       {/if}
     </header>
 
-    <SurfacesBar entries={OPEN_SURFACES} active={activeSurface} {ontoggle} />
+    <SurfacesBar
+      entries={OPEN_SURFACES}
+      active={activeSurface}
+      {ontoggle}
+      onnew={onnew ?? undefined}
+      oncomfort={oncomfort ?? undefined}
+    />
   {:else}
     <!-- شريط سحب النافذة يبقى: لا chrome نظام يُعاد رسمه، ولا نافذة
          تصير غير قابلة للتحريك لأن المستخدم دخل وضع كتابة — §٧. -->
