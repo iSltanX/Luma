@@ -201,6 +201,7 @@ fn memory_rss_kb() -> Option<u64> {
 #[tauri::command]
 fn close_declined() {
     CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
+    EXITING.store(false, std::sync::atomic::Ordering::SeqCst);
 }
 
 /// يكتب تقرير الفحص إلى مجلد البيانات. أداة تطوير.
@@ -279,6 +280,15 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
 
 /// يُمنع الإغلاق مرة واحدة فقط: لو فشل الحفظ لا يعلق المستخدم داخل نافذة.
 static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// ومزلاج ثانٍ لـ⌘Q — **مسارٌ آخر لا يمرّ بإغلاق النافذة إطلاقًا**.
+///
+/// بند «إنهاء Luma» يرسل `terminate:` إلى `NSApplication` مباشرةً
+/// (`muda`: `PredefinedMenuItemType::Quit => sel!(terminate:)`)، فلا
+/// يقع `CloseRequested` ولا يُبثّ `luma://flush-and-close`. وكانت
+/// النتيجة أن ⌘Q — وهو أشيع طرق إنهاء تطبيقات macOS — يفقد ما لم
+/// يصل القرص بعد: حتى خمس ثوانٍ من الكتابة، وهو سقف الحفظ التلقائي.
+static EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -364,8 +374,31 @@ pub fn run() {
                 _ => {}
             }
         })
-        .run(tauri::generate_context!())
-        .expect("تعذّر تشغيل Luma");
+        .build(tauri::generate_context!())
+        .expect("تعذّر تشغيل Luma")
+        .run(|app, event| {
+            // **⌘Q يمرّ بالحفظ كما يمرّ إغلاق النافذة.**
+            //
+            // `terminate:` لا يقع عليه `CloseRequested`، فيلزم اعتراضه
+            // هنا. النمط نفسه: يُمنع الخروج مرة، وتُخطَر الواجهة
+            // لتُفرغ ما لديها، ثم تُنهي هي — أو ترفض وتُبلّغ وتفتح
+            // المزلاج (§٥ **ثابت**: فرصة استرجاع صريحة).
+            if let tauri::RunEvent::ExitRequested { api, code, .. } = event {
+                // **لا يُمنع خروجٌ لا نافذة فيه.** بعد أن تُفرغ الواجهة
+                // وتهدم نافذتها يطلب Tauri الخروج من جديد؛ ومنعُه
+                // عندئذٍ يبثّ حدثًا إلى نافذة لم تعد موجودة، فيعلق
+                // التطبيق حيًّا بلا واجهة ولا يخرج أبدًا.
+                //
+                // وخروجٌ طلبه الكود (`code` موجود) يمضي بلا اعتراض.
+                if code.is_none()
+                    && !app.webview_windows().is_empty()
+                    && !EXITING.swap(true, std::sync::atomic::Ordering::SeqCst)
+                {
+                    api.prevent_exit();
+                    let _ = app.emit("luma://flush-and-close", ());
+                }
+            }
+        });
 }
 
 #[cfg(test)]

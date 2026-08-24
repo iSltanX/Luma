@@ -12,6 +12,9 @@ import {
   coerce,
   fontStack,
   FALLBACK_FAMILY,
+  applyToRoot,
+  PreferencesStore,
+  type Preferences,
 } from "../src/lib/preferences.svelte";
 import {
   BAND,
@@ -202,5 +205,104 @@ describe("حساب الآلة الكاتبة", () => {
     const pad = comfortPadding(800);
     expect(pad.top).toBe(Math.round(800 * BAND.anchor));
     expect(pad.top + pad.bottom).toBe(800);
+  });
+});
+
+// ── تطبيق التفضيل على الشجرة ─────────────────────────────────
+
+/**
+ * جذرٌ زائف بأقلّ ما تلمسه `applyToRoot`: `style.setProperty` و
+ * `dataset`. لا حاجة إلى DOM كامل لاختبار منطق خالص.
+ */
+function fakeRoot() {
+  const props = new Map<string, string>();
+  const dataset: Record<string, string> = {};
+  return {
+    props,
+    dataset,
+    el: {
+      style: {
+        setProperty: (k: string, v: string) => void props.set(k, v),
+      },
+      dataset,
+    } as unknown as HTMLElement,
+  };
+}
+
+/**
+ * السلسلة من عنصر التحكم إلى المتغيّر لم تكن مغطّاة في أي طبقة.
+ *
+ * اختبار الأسطح يضبط المتغيّرات بنفسه ويؤكّد أن المحرر يتبعها — أي
+ * أنه يختبر **الأثر** لا **المتحكِّم**. فلو انقطع الوصل بين المنزلق
+ * والمخزن لبقيت الاختبارات كلها خضراء وتوقّف الإعداد عن العمل عند
+ * المستخدم.
+ */
+describe("تغيير التفضيل يصل جذر المستند فورًا", () => {
+  it("`applyToRoot` يكتب المتغيّرات الأربعة", () => {
+    const { props, el } = fakeRoot();
+    applyToRoot(
+      { ...DEFAULTS, fontSize: 24, lineHeight: 2.1, columnWidth: 560 },
+      el,
+    );
+    expect(props.get("--luma-editor-size")).toBe("24px");
+    expect(props.get("--luma-editor-leading")).toBe("2.1");
+    expect(props.get("--editor-measure")).toBe("560px");
+    expect(props.get("--luma-editor-family")).toContain("Almarai");
+  });
+
+  it("تقليل الحركة يُرفع ويُزال بالسمة", () => {
+    const a = fakeRoot();
+    applyToRoot({ ...DEFAULTS, reduceMotionOverride: true }, a.el);
+    expect(a.dataset["reduceMotion"]).toBe("on");
+
+    const b = fakeRoot();
+    b.dataset["reduceMotion"] = "on";
+    applyToRoot({ ...DEFAULTS, reduceMotionOverride: false }, b.el);
+    expect(b.dataset["reduceMotion"]).toBeUndefined();
+  });
+
+  it("`set` يطبّق على الشجرة قبل أن يجدول الكتابة", () => {
+    const { props, el } = fakeRoot();
+    const store = new PreferencesStore();
+    const written: Preferences[] = [];
+    store.hydrate({}, el, (v) => written.push(v));
+
+    store.set("fontSize", 26);
+    // الأثر فوري — «يظهر أثر إعدادات العرض مباشرة» §١٥
+    expect(props.get("--luma-editor-size")).toBe("26px");
+    // والكتابة مؤجَّلة، فلا يكتب المنزلق ملفًّا مع كل بكسل
+    expect(written).toHaveLength(0);
+
+    store.set("columnWidth", 520);
+    expect(props.get("--editor-measure")).toBe("520px");
+  });
+
+  it("`flush` يكتب ما جُدول، ومرة واحدة", () => {
+    const { el } = fakeRoot();
+    const store = new PreferencesStore();
+    const written: Preferences[] = [];
+    store.hydrate({}, el, (v) => written.push(v));
+
+    store.set("fontSize", 22);
+    store.set("lineHeight", 1.5);
+    store.flush();
+    expect(written).toHaveLength(1);
+    expect(written[0]!.fontSize).toBe(22);
+    expect(written[0]!.lineHeight).toBe(1.5);
+
+    // لا شيء معلَّق بعدها
+    store.flush();
+    expect(written).toHaveLength(1);
+  });
+
+  it("قيمة لا تتغيّر لا تُطبَّق ولا تُجدوَل", () => {
+    const { el } = fakeRoot();
+    const store = new PreferencesStore();
+    const written: Preferences[] = [];
+    store.hydrate({}, el, (v) => written.push(v));
+
+    store.set("fontSize", DEFAULTS.fontSize);
+    store.flush();
+    expect(written).toHaveLength(0);
   });
 });

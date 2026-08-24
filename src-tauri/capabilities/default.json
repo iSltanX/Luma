@@ -1,7 +1,11 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "default",
-  "description": "أقل صلاحيات تحتاجها نافذة Luma: استقبال أحداث القائمة الأصلية. لا شبكة، ولا نظام ملفات من الواجهة — التخزين كله في النواة.",
+  "description": "أقل صلاحيات تحتاجها نافذة Luma فعلًا: أحداث القائمة الأصلية، وهدم النافذة بعد نجاح الحفظ، وقراءة رقم الإصدار لشاشة «حول». لا شبكة، ولا نظام ملفات من الواجهة — التخزين كله في النواة.",
   "windows": ["main"],
-  "permissions": ["core:event:default"]
+  "permissions": [
+    "core:event:default",
+    "core:window:allow-destroy",
+    "core:app:allow-version"
+  ]
 }

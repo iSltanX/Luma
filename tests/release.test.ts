@@ -7,8 +7,20 @@
  */
 
 import { describe, it, expect } from "vitest";
-import { readFileSync, existsSync } from "node:fs";
-import { join } from "node:path";
+import { readFileSync, existsSync, readdirSync, statSync } from "node:fs";
+import { join, sep } from "node:path";
+
+const SRC = join(process.cwd(), "src");
+
+function files(dir: string, exts: string[]): string[] {
+  const out: string[] = [];
+  for (const e of readdirSync(dir)) {
+    const p = join(dir, e);
+    if (statSync(p).isDirectory()) out.push(...files(p, exts));
+    else if (exts.some((x) => e.endsWith(x))) out.push(p);
+  }
+  return out;
+}
 
 const ROOT = process.cwd();
 const TAURI = join(ROOT, "src-tauri");
@@ -91,6 +103,55 @@ describe("التوقيع والاستحقاقات", () => {
   });
 });
 
+describe("الصلاحيات تغطّي ما تستدعيه الواجهة فعلًا", () => {
+  /**
+   * صلاحية ناقصة **لا تُصدر خطأ ظاهرًا**: الاستدعاء يُرفض، والنتيجة
+   * سطرٌ فارغ أو زرٌّ لا يفعل شيئًا. وقد وقع الاثنان معًا: رقم
+   * الإصدار في «حول» كان فارغًا لأن `core:app:allow-version` ناقصة،
+   * وزر إغلاق النافذة كان يفشل صامتًا في أول ضغطة ثم يغلق **بلا
+   * حفظ** في الثانية لأن `core:window:allow-destroy` ناقصة.
+   *
+   * الحارس يربط ما يستدعيه الكود بما يمنحه الملف: استدعاءٌ بلا منح
+   * يُسقط البناء بدل أن يُكتشف عند المستخدم.
+   */
+  const CAP = JSON.parse(
+    readFileSync(join(TAURI, "capabilities", "default.json"), "utf8"),
+  ) as { permissions: string[] };
+
+  /** ما يستدعيه الكود ← الصلاحية التي يحتاجها. */
+  const NEEDS: ReadonlyArray<[RegExp, string, string]> = [
+    [/getCurrentWindow\(\)\s*\.\s*destroy\(/, "core:window:allow-destroy", "هدم النافذة بعد نجاح الحفظ"],
+    [/\bgetVersion\(\)/, "core:app:allow-version", "رقم الإصدار في «حول»"],
+    [/\blisten\s*\(/, "core:event:default", "استقبال أحداث النواة"],
+  ];
+
+  const src = files(SRC, [".ts", ".svelte"])
+    .filter((f) => !f.includes(`${sep}dev${sep}`))
+    .map((f) => readFileSync(f, "utf8"))
+    .join("\n");
+
+  it.each(NEEDS.map(([re, perm, what]) => [what, re, perm] as const))(
+    "%s ← الصلاحية ممنوحة",
+    (_what, re, perm) => {
+      if (!re.test(src)) return; // لا يُستدعى، فلا يُشترط
+      expect(
+        CAP.permissions,
+        `الكود يستدعيه والصلاحية «${perm}» غير ممنوحة — يُرفض صامتًا`,
+      ).toContain(perm);
+    },
+  );
+
+  it("لا صلاحية ممنوحة بلا مستدعٍ — أقلّ ما يكفي", () => {
+    const granted = new Set(CAP.permissions);
+    const justified = new Set(NEEDS.map(([, p]) => p));
+    const extra = [...granted].filter((p) => !justified.has(p));
+    expect(
+      extra,
+      "صلاحية بلا استدعاء يقابلها — تُحذف أو يُكتب سببها هنا",
+    ).toEqual([]);
+  });
+});
+
 describe("سطح الشبكة", () => {
   // §١١ **ثابت**: «تخزين على الجهاز، بلا حساب وبلا مزامنة»، ولا قياس
   // تشخيصي. القاعدة تُفرض في ثلاث طبقات، وهذا يحرس اثنتين منها.
@@ -151,6 +212,26 @@ describe("تراخيص الخطوط", () => {
     const files = CONF.bundle.macOS.files ?? {};
     expect(files["Resources/fonts/OFL.txt"]).toBeTruthy();
     expect(files["Resources/fonts/NOTICE.md"]).toBeTruthy();
+  });
+});
+
+describe("التوزيع يغطّي كل جهاز مدعوم", () => {
+  // [ADR ٠٠١٦](../docs/decisions/0016-universal-binary.md): الدعم
+  // المُعلَن macOS 13 يشمل أجهزة Intel، وحزمة arm64 وحدها لا تفتح عندهم.
+  it("مسار الإصدار يبني هدفًا عالميًا", () => {
+    const pkg = JSON.parse(readFileSync(join(ROOT, "package.json"), "utf8")) as {
+      scripts: Record<string, string>;
+    };
+    expect(pkg.scripts["app:build:universal"]).toContain(
+      "universal-apple-darwin",
+    );
+    const sh = readFileSync(join(ROOT, "scripts", "release.sh"), "utf8");
+    expect(sh).toContain("app:build:universal");
+    // ويتحقق بـ`lipo` بدل أن يفترض
+    expect(sh).toContain("lipo -archs");
+    expect(sh, "لا حارس يمنع شحن حزمة ناقصة المعمارية").toContain(
+      "ليست عالمية",
+    );
   });
 });
 
