@@ -27,9 +27,6 @@ body {
 
   -webkit-font-smoothing: antialiased;
 
-  /* نص الواجهة غير قابل للتحديد — مساحة الكتابة وحدها تستثنى */
-  -webkit-user-select: none;
-  user-select: none;
 
   /* تبديل الثيم يقلب الشجرة بسمة واحدة، فلا إعادة بناء ولا فقد تمرير */
   transition: background-color 160ms ease, color 160ms ease;
@@ -47,6 +44,15 @@ body {
   flex-direction: column;
   overflow: hidden;
   position: relative;
+}
+
+/* منع التحديد على عناصر الواجهة وحدها — **لا على `body`**.
+   حين يحمل سلفٌ للمحرر `user-select: none` ويحمل المحرر `text`،
+   يرسم WebKit التحديد مستطيلًا يمتد على السلف غير القابل للتحديد
+   بدل أن يتبع الأسطر. لذلك لا يعلو المنعُ منطقةَ الكتابة أبدًا. */
+.luma-chrome {
+  -webkit-user-select: none;
+  user-select: none;
 }
 
 /* حلقة التركيز: إطار ٢px بإزاحة ٢px. لا تُلغى أبدًا لأسباب جمالية

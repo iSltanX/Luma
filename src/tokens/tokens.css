@@ -181,6 +181,8 @@
   --size-slider-knob: 16px;
   --size-focus-ring: 2px;
   --size-focus-offset: 2px;
+
+  --editor-measure: clamp(var(--size-column-min), 64vw, var(--size-column-max));
 }
 
 :root {

@@ -139,6 +139,14 @@
       editor.setBlocks(doc);
       session.handleChange(doc);
       editor.focus();
+
+      // تحقق بصري: تمرير إلى الوسط ثم تحديد المستند كاملًا.
+      // يمرّ التحديد بمسار الإدخال الأصلي فيتولّاه المحرر — ضبط
+      // نطاق DOM مباشرةً يُلغيه المحرر عند أول مزامنة.
+      await new Promise((r) => setTimeout(r, 300));
+      const sc = document.querySelector(".scroller");
+      if (sc) sc.scrollTop = Math.round(sc.scrollHeight / 2);
+      document.execCommand("selectAll");
     }
   });
 
@@ -152,7 +160,7 @@
 {#if gallery}
   <Gallery />
 {:else}
-<div class="titlebar" data-tauri-drag-region>
+<div class="titlebar luma-chrome" data-tauri-drag-region>
   <span class="title">{title}</span>
   <div class="save"><SaveStatus state={saveState} /></div>
 </div>
@@ -164,11 +172,11 @@
 </div>
 
 {#if count > 0}
-  <div class="count">{words(count)}</div>
+  <div class="count luma-chrome">{words(count)}</div>
 {/if}
 
 <!-- مبدّل الثيم — مؤقت حتى تصل الإعدادات في المرحلة ٦ -->
-<div class="themes">
+<div class="themes luma-chrome">
   {#each THEMES as t (t.id)}
     <button
       type="button" class="tchip" class:on={theme.id === t.id}
@@ -207,26 +215,56 @@
     justify-self: end;
   }
 
+  /* ── منطقة الكتابة ──────────────────────────────────────────
+     مسؤول تمرير **واحد**: `.scroller`. لا ارتفاع ثابت، ولا قصّ،
+     ولا طبقة تمرير ثانية.
+
+     كانت شبكة (`grid`) بـ`align-content: stretch`، فكان صفّها يُشدّ
+     إلى ارتفاع الحاوية المرئي، و`min-height: 100%` على الورقة يُحلّ
+     على مساحة الشبكة لا على ارتفاع المحتوى — فتتوقف خلفية الورقة عند
+     حدود النافذة بينما يستمر النص خارجها. الحاوية الآن كتلة عادية،
+     فتنمو الورقة مع محتواها ويبقى السطح متصلًا. */
   .scroller {
     flex: 1 1 auto;
+    /* بدونه لا ينكمش عنصر المرونة تحت محتواه فلا يُمرَّر شيء */
+    min-block-size: 0;
     overflow-y: auto;
-    display: grid;
-    grid-template-columns: var(--size-sheet);
-    justify-content: center;
-    align-content: stretch;
+    overflow-x: hidden;
     background: var(--surface-canvas);
+    padding-inline: var(--space-024);
+    padding-block: var(--space-020) var(--space-032);
   }
 
+  /* الورقة: بطاقة متصلة على الخلفية، كما في `إطار المحرر` في Figma.
+     الحدّ ونصف القطر ليسا زينة — بدونهما تختفي الورقة في «ليل» حيث
+     surface/paper وsurface/canvas متقاربان. */
   .sheet {
-    min-height: 100%;
-    padding-inline: var(--size-sheet-pad);
-    padding-block: 80px 40vh;
+    inline-size: min(
+      100%,
+      calc(var(--editor-measure) + var(--size-sheet-pad) * 2)
+    );
+    margin-inline: auto;
+    min-block-size: 100%;
     background: var(--surface-paper);
+    border: 1px solid var(--border-subtle);
+    border-radius: var(--radius-lg);
+    padding-inline: var(--size-sheet-pad);
+    padding-block: var(--space-048) 40vh;
   }
 
+  /* الورقة تحمل القياس، فالعمود يملأها. لا تحديد عرض مكرَّر. */
   .column {
-    max-width: var(--size-column);
-    margin-inline: auto;
+    inline-size: 100%;
+  }
+
+  /* نوافذ ضيّقة: تنكمش الحشوة قبل أن ينكمش النص */
+  @media (max-width: 700px) {
+    .scroller {
+      padding-inline: var(--space-008);
+    }
+    .sheet {
+      padding-inline: var(--space-024);
+    }
   }
 
   .themes {

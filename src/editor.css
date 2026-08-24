@@ -1,15 +1,43 @@
-/* مظهر مساحة الكتابة — أنماط النص من طبقة الرموز، لا قيم مكتوبة. */
+/* مساحة الكتابة — أنماط النص من طبقة الرموز، لا قيم مكتوبة. */
+
+/* ── أساس ProseMirror ─────────────────────────────────────────
+   يُكتب هنا بدل استيراد CSS الحزمة، لسببين: ألّا يدخل لون حرفي من
+   خارج طبقة الرموز، ولأن الحزمة تُعطّل الروابط (`liga`) لتفادي مشكلة
+   مؤشر في اللاتينية — وتعطيلها على العربية يفكّ «لا» وأمثالها.
+   العربية تحتاج الروابط، فلا تُعطَّل هنا إطلاقًا. */
+.ProseMirror {
+  position: relative;
+  white-space: pre-wrap;
+  word-wrap: break-word;
+}
+
+/* لا `-webkit-user-modify`: خاصية قديمة تغيّر حبيبة التحديد في WebKit
+   فيلتقط النقر المزدوج الفقرة كاملة بدل الكلمة. ولا حاجة إليها أصلًا —
+   المخطط بلا marks و`handlePaste` يتولّى تنظيف اللصق. */
+
+/* أثناء تحديد عقدة كاملة يخفي ProseMirror تحديد النص */
+.ProseMirror-hideselection *::selection {
+  background: transparent;
+}
+.ProseMirror-hideselection {
+  caret-color: transparent;
+}
+
+/* ── مساحة الكتابة ───────────────────────────────────────────── */
 
 .luma-editor {
-  /* مساحة الكتابة وحدها قابلة للتحديد */
-  -webkit-user-select: text;
-  user-select: text;
   outline: none;
 
   /* محرر · Editor/03 نص القراءة */
   font: var(--text-editor-reading);
   color: var(--editor-ink);
   letter-spacing: 0;
+
+  /* المؤشر يتبع حبر النص لا لون النظام */
+  caret-color: var(--editor-ink);
+
+  /* الفقرة الأخيرة تبقى قابلة للنقر حتى نهاية العمود */
+  min-block-size: 100%;
 }
 
 .luma-editor :where(p) {
@@ -35,6 +63,11 @@
   color: var(--text-muted);
 }
 
+/* تحديد النص — §٩: `accent/selection` محلول لـ٩٫٥:١ مع حبر المحرر.
+   يُصرَّح على العنصر نفسه **وعلى أبنائه**: القاعدة على الأبناء وحدهم
+   تترك تحديد العنصر الجذر إلى لون النظام. */
+.luma-editor::selection,
 .luma-editor ::selection {
   background: var(--accent-selection);
+  color: var(--editor-ink);
 }

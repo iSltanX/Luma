@@ -51,6 +51,15 @@ for (const [k, v] of Object.entries(src.radius)) {
 }
 css += `\n`;
 for (const [k, v] of Object.entries(src.size)) css += `  --size-${k}: ${v}px;\n`;
+
+// قيم مركَّبة — تُصرَّح بعد الرموز التي تعتمد عليها
+if (src.derived) {
+  css += `\n`;
+  for (const [k, v] of Object.entries(src.derived)) {
+    if (k.startsWith("_")) continue;
+    css += `  --${k}: ${v};\n`;
+  }
+}
 css += `}\n\n`;
 
 // أنماط النص. التتبّع صفر على كل نمط يُشحن — قاعدة عربية لا تفضيل.

@@ -353,6 +353,138 @@ export async function runSelfTest(
     );
   }
 
+  // ── ٦ج · سطح الكتابة: استمرارية وتحديد وتجاوب ──────────────
+  {
+    editor.setBlocks(buildLongDocument(4000));
+    await paint();
+
+    const sheet = document.querySelector(".sheet");
+    const scroller = document.querySelector(".scroller");
+    const ed = host.querySelector(".luma-editor");
+
+    if (sheet && scroller && ed) {
+      // ١ · الورقة تحيط بالنص كاملًا ولا تنتهي قبله
+      const sh = sheet.getBoundingClientRect().height;
+      const eh = ed.getBoundingClientRect().height;
+      const sheetOverflows = sheet.scrollHeight > Math.ceil(sh) + 2;
+      add(
+        "sheet-continuous",
+        "الورقة تحيط بالنص كاملًا",
+        sh > eh && !sheetOverflows,
+        `الورقة ${Math.round(sh)}px والمحرر ${Math.round(eh)}px — ` +
+          `${sheetOverflows ? "المحتوى يفيض منها" : "لا فيض"}`,
+      );
+
+      // ٢ · مسؤول تمرير واحد
+      const many: string[] = [];
+      for (const el of Array.from(document.querySelectorAll("body *"))) {
+        const oy = getComputedStyle(el).overflowY;
+        if (
+          (oy === "auto" || oy === "scroll") &&
+          el.scrollHeight > el.clientHeight + 4
+        ) {
+          many.push(String(el.className).split(" ")[0] ?? el.tagName);
+        }
+      }
+      add(
+        "single-scroller",
+        "مسؤول تمرير واحد لا طبقات مكررة",
+        many.length === 1,
+        many.length ? many.join(" + ") : "لا مُمرِّر",
+      );
+
+      // ٣ · النص داخل الورقة عند البداية والوسط والنهاية
+      const max = scroller.scrollHeight - scroller.clientHeight;
+      const spots: string[] = [];
+      for (const pos of [0, Math.round(max / 2), max]) {
+        scroller.scrollTop = pos;
+        await paint();
+        const box = sheet.getBoundingClientRect();
+        const outside = Array.from(host.querySelectorAll(".luma-editor p"))
+          .map((n) => n.getBoundingClientRect())
+          .filter((r) => r.bottom > 0 && r.top < window.innerHeight)
+          .some((r) => r.top < box.top - 1 || r.bottom > box.bottom + 1);
+        if (outside) spots.push(String(pos));
+      }
+      scroller.scrollTop = 0;
+      await paint();
+      add(
+        "sheet-scroll",
+        "النص يبقى داخل الورقة عند التمرير",
+        spots.length === 0,
+        spots.length ? `خرج عند: ${spots.join(", ")}` : "البداية والوسط والنهاية سليمة",
+      );
+
+      // ٤ · لا سلف غير قابل للتحديد يحيط بالمحرر
+      const blockers: string[] = [];
+      let el: Element | null = ed;
+      while (el && el !== document.body) {
+        const cs = getComputedStyle(el);
+        if ((cs.webkitUserSelect || cs.userSelect) === "none") {
+          blockers.push(String(el.className).split(" ")[0] ?? el.tagName);
+        }
+        el = el.parentElement;
+      }
+      add(
+        "selection-ancestors",
+        "لا سلف بـuser-select:none يحيط بالمحرر",
+        blockers.length === 0,
+        blockers.length ? blockers.join(" ← ") : "السلسلة نظيفة",
+      );
+
+      // ٥ · التحديد يتبع الأسطر لا كتلة واحدة
+      const para = host.querySelector(".luma-editor p");
+      const node = para?.firstChild;
+      let rectInfo = "لا فقرة";
+      let follows = false;
+      if (node && node.textContent) {
+        const r = document.createRange();
+        r.setStart(node, 0);
+        r.setEnd(node, node.textContent.length);
+        const rects = Array.from(r.getClientRects());
+        const tallest = Math.max(...rects.map((x) => x.height));
+        follows = rects.length > 1 && tallest < 60;
+        rectInfo = `${rects.length} مستطيلًا، أطولها ${Math.round(tallest)}px`;
+      }
+      add("selection-lines", "التحديد يتبع الأسطر", follows, rectInfo);
+
+      // ٦ · الورقة متمايزة عن الخلفية في الثيمات الخمسة
+      const flat: string[] = [];
+      const originalTheme = theme.id;
+      for (const id of THEME_IDS) {
+        theme.apply(id);
+        await paint();
+        const cs = getComputedStyle(sheet);
+        const sameBg =
+          cs.backgroundColor ===
+          getComputedStyle(scroller).backgroundColor;
+        const noBorder = parseFloat(cs.borderTopWidth) < 1;
+        if (sameBg && noBorder) flat.push(id);
+      }
+      theme.apply(originalTheme);
+      await paint();
+      add(
+        "sheet-visible",
+        "الورقة متمايزة عن الخلفية في الثيمات الخمسة",
+        flat.length === 0,
+        flat.length ? `تذوب في: ${flat.join(", ")}` : "متمايزة في الخمسة",
+      );
+
+      // ٧ · عمود الكتابة داخل المدى الموثَّق ويستفيد من العرض
+      const cs = getComputedStyle(sheet);
+      const pad = parseFloat(cs.paddingInlineStart);
+      const measure = Math.round(sheet.getBoundingClientRect().width - pad * 2);
+      const ratio =
+        sheet.getBoundingClientRect().width / scroller.clientWidth;
+      add(
+        "measure",
+        "عمود الكتابة داخل ٥٢٠–٨٠٠ ويستفيد من العرض",
+        measure >= 500 && measure <= 800 && ratio > 0.6,
+        `العمود ${measure}px ويشغل ${Math.round(ratio * 100)}٪ من العرض`,
+      );
+    }
+  }
+
   // ── ٧ · دورة الحفظ الكاملة عبر النواة ──────────────────────
   if (invoke) {
     const id = `selftest-${Date.now().toString(36)}`;
