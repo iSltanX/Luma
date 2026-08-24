@@ -1,0 +1,63 @@
+/* الخطوط المدمجة — تُحمَّل من الحزمة، بلا أي طلب شبكة.
+   Cairo للواجهة (لا يتغيّر بتفضيل المستخدم).
+   Almarai للكتابة داخل المحرر، بأوزانه الأربعة الحقيقية فقط:
+   Light 300 · Regular 400 · Bold 700 · ExtraBold 800.
+   لا Medium ولا SemiBold ولا Italic — غير موجودة في العائلة. */
+
+@font-face {
+  font-family: "Cairo";
+  src: url("/fonts/Cairo-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Cairo";
+  src: url("/fonts/Cairo-Medium.ttf") format("truetype");
+  font-weight: 500;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Cairo";
+  src: url("/fonts/Cairo-SemiBold.ttf") format("truetype");
+  font-weight: 600;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Cairo";
+  src: url("/fonts/Cairo-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+
+@font-face {
+  font-family: "Almarai";
+  src: url("/fonts/Almarai-Light.ttf") format("truetype");
+  font-weight: 300;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Almarai";
+  src: url("/fonts/Almarai-Regular.ttf") format("truetype");
+  font-weight: 400;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Almarai";
+  src: url("/fonts/Almarai-Bold.ttf") format("truetype");
+  font-weight: 700;
+  font-style: normal;
+  font-display: block;
+}
+@font-face {
+  font-family: "Almarai";
+  src: url("/fonts/Almarai-ExtraBold.ttf") format("truetype");
+  font-weight: 800;
+  font-style: normal;
+  font-display: block;
+}

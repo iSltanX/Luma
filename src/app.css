@@ -1,0 +1,89 @@
+@import "./lib/fonts.css";
+
+/* ───────────────────────────────────────────────────────────
+   رموز مؤقتة — المرحلة ١ فقط.
+   القيم من وضع «ورق · Paper» في Figma، مأخوذة يدويًا لأغراض القياس.
+   المرحلة ٤ تستبدل هذا الملف بطبقة رموز مولَّدة من مصدر واحد
+   تغطي الثيمات الخمسة. لا يُبنى عليه شيء دائم.
+   ─────────────────────────────────────────────────────────── */
+:root {
+  --surface-paper: #fffbf3;
+  --surface-canvas: #fcf5ed;
+  --surface-raised: #fffbf3;
+  --border-subtle: #e3dcd4;
+  --border-strong: #ccc5bd;
+  --text-primary: #2b241c;
+  --text-secondary: #534b43;
+  --text-muted: #6e665d;
+  --editor-ink: #2b241c;
+  --accent-text: #905522;
+  --accent-graphic: #b67642;
+
+  /* مقاسات ثابتة من التصميم — IMPLEMENTATION.md §٩ */
+  --titlebar-h: 48px;
+  --sheet-w: 760px;
+  --sheet-pad: 60px;
+  --column-w: 640px;
+
+  color-scheme: light;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html,
+body {
+  height: 100%;
+  margin: 0;
+  padding: 0;
+}
+
+body {
+  background: var(--surface-canvas);
+  color: var(--text-primary);
+
+  /* Cairo خط الواجهة — ثابت، لا يتغيّر بتفضيل المستخدم */
+  font-family: "Cairo", system-ui, sans-serif;
+
+  /* قواعد الطباعة العربية — IMPLEMENTATION.md §٧ و«قواعد الطباعة العربية» في Luma.md
+     التتبّع صفر دائمًا: التتبّع السالب يفسد اتصال الحروف،
+     والموجب يفصل الحروف المتصلة في محرك العرض. */
+  letter-spacing: 0;
+
+  /* لا يُترك ارتفاع السطر تلقائيًا */
+  line-height: 24px;
+  font-size: 14px; /* الحد الأدنى ١٢ لأي نص عربي */
+
+  -webkit-font-smoothing: antialiased;
+
+  /* نص الواجهة غير قابل للتحديد — مساحة الكتابة وحدها تستثنى */
+  -webkit-user-select: none;
+  user-select: none;
+}
+
+/* لا نص عربي دون ١٢ نقطة — حارس يكشف المخالفة أثناء التطوير */
+:where(body) {
+  --min-arabic-size: 12px;
+}
+
+/* حلقة التركيز: إطار ٢px بلون accent-graphic بإزاحة ٢px.
+   لا تُلغى أبدًا لأسباب جمالية — IMPLEMENTATION.md §٩ */
+:focus-visible {
+  outline: 2px solid var(--accent-graphic);
+  outline-offset: 2px;
+}
+
+/* تقليل الحركة: كل انتقال يصبح فوريًا بلا فقد وظيفة */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+    scroll-behavior: auto !important;
+  }
+}

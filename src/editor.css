@@ -1,0 +1,49 @@
+/* أنماط مساحة الكتابة — مشتركة بين المرشحين الثلاثة ليكون القياس عادلًا.
+   القيم من أنماط النص في Figma: محرر · Editor/01 و03. */
+
+.luma-editor {
+  /* مساحة الكتابة وحدها قابلة للتحديد */
+  -webkit-user-select: text;
+  user-select: text;
+  outline: none;
+
+  font-family: "Almarai", serif;
+  color: var(--editor-ink);
+
+  /* محرر · Editor/03 نص القراءة — Almarai Regular ١٩/٣٦ */
+  font-size: 19px;
+  line-height: 36px;
+
+  /* التتبّع صفر دائمًا على العربية */
+  letter-spacing: 0;
+}
+
+.luma-editor :where(p) {
+  margin: 0 0 20px;
+}
+
+/* محرر · Editor/01 عنوان المستند — Almarai Bold ٣٢/٤٨ */
+.luma-editor :where(h1) {
+  font-size: 32px;
+  line-height: 48px;
+  font-weight: 700;
+  margin: 0 0 24px;
+  letter-spacing: 0;
+}
+
+.luma-editor :where(h2) {
+  font-size: 24px;
+  line-height: 40px;
+  font-weight: 700;
+  margin: 32px 0 16px;
+  letter-spacing: 0;
+}
+
+/* وضع التركيز: لون رمز مقروء، لا شفافية عشوائية — §٧ */
+.luma-editor :where(.luma-dimmed) {
+  color: var(--text-muted);
+}
+
+.luma-editor ::selection {
+  background: #e8d5bf;
+}
