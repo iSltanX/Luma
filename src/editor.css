@@ -28,8 +28,14 @@
 .luma-editor {
   outline: none;
 
-  /* محرر · Editor/03 نص القراءة */
-  font: var(--text-editor-reading);
+  /* محرر · Editor/03 نص القراءة — بقيمه مفكَّكة لا مختصرة، لأن
+     المستخدم يملك ثلاثتها: العائلة والحجم والتباعد (§١١ و§١٥).
+     الاختصار `font:` كان يمنع تجاوز جزء منه. */
+  font-family: var(--luma-editor-family);
+  font-size: var(--luma-editor-size);
+  /* **مصرَّح به لا تلقائي** — قاعدة الطباعة العربية §١١ **ثابت** */
+  line-height: var(--luma-editor-leading);
+  font-weight: 400;
   color: var(--editor-ink);
   letter-spacing: 0;
 
@@ -44,16 +50,27 @@
   margin: 0 0 var(--space-020);
 }
 
+/* العناوين بنسب التصميم إلى نص القراءة لا بمقاسات مطلقة:
+   `Editor/01` ٣٢ و`Editor/02` ٢٤ على قاعدة ١٩، وارتفاعاهما ٤٨ و٣٨.
+   بالنسبة تتبع العناوينُ حجمَ النص الذي يختاره المستخدم، فيبقى
+   التسلسل البصري كما صُمِّم عند كل مقاس. */
+
 /* محرر · Editor/01 عنوان المستند */
 .luma-editor :where(h1) {
-  font: var(--text-editor-title);
+  font-family: var(--luma-editor-family);
+  font-size: 1.6842em; /* ٣٢ ÷ ١٩ */
+  line-height: 1.5; /* ٤٨ ÷ ٣٢ */
+  font-weight: 700;
   letter-spacing: 0;
   margin: 0 0 var(--space-024);
 }
 
 /* محرر · Editor/02 عنوان فرعي */
 .luma-editor :where(h2) {
-  font: var(--text-editor-subtitle);
+  font-family: var(--luma-editor-family);
+  font-size: 1.2632em; /* ٢٤ ÷ ١٩ */
+  line-height: 1.5833; /* ٣٨ ÷ ٢٤ */
+  font-weight: 700;
   letter-spacing: 0;
   margin: var(--space-032) 0 var(--space-016);
 }

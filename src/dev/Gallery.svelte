@@ -24,6 +24,7 @@
   import NavRow from "../components/NavRow.svelte";
   import ThemeCard from "../components/ThemeCard.svelte";
   import SaveStatus from "../components/SaveStatus.svelte";
+  import ToggleChip from "../components/ToggleChip.svelte";
   import SearchField from "../components/SearchField.svelte";
   import DocumentRow from "../components/DocumentRow.svelte";
   import RevisionRow from "../components/RevisionRow.svelte";
@@ -164,6 +165,13 @@
         <SurfacesBar entries={SURFACES} active={surface}
           ontoggle={(id) => (surface = surface === id ? null : id)} />
       </div>
+    </div>
+  </section>
+
+  <section><h3 class="t-ui-04">رقاقة تبديل — حالتان</h3>
+    <div class="row">
+      <ToggleChip label="الآلة الكاتبة" on onclick={() => {}} />
+      <ToggleChip label="التركيز" onclick={() => {}} />
     </div>
   </section>
 

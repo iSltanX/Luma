@@ -5,6 +5,7 @@
 //! فيه macOS أزرار النافذة.
 
 pub mod commands;
+pub mod fonts;
 pub mod storage;
 
 use std::path::PathBuf;
@@ -166,12 +167,19 @@ fn write_report(json: String) -> Result<String, String> {
 /// التراجع والنسخ واللصق والتحديد إلى مساحة الكتابة داخل نافذة العرض.
 /// المرجع: `IMPLEMENTATION.md` §١ — «ما يجب أن يأتي من المنصة».
 fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::menu::Menu<R>> {
+    // «الإعدادات… ⌘,» في قائمة التطبيق — العُرف الأصلي في macOS.
+    // شاشة الإعدادات كاملة في التصميم بلا مدخل مرسوم لها في المحرر:
+    // مدخلها هو مدخل النظام، ولا يُخترع زرّ ثالث في شريط هادئ.
+    let settings_item = MenuItem::with_id(app, "settings", "الإعدادات…", true, Some("CmdOrCtrl+,"))?;
+
     let app_menu = SubmenuBuilder::new(app, "Luma")
         .item(&PredefinedMenuItem::about(
             app,
             Some("عن Luma"),
             Some(AboutMetadata::default()),
         )?)
+        .separator()
+        .item(&settings_item)
         .separator()
         .item(&PredefinedMenuItem::services(app, Some("الخدمات"))?)
         .separator()
@@ -223,6 +231,7 @@ static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::n
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_dialog::init())
         .invoke_handler(tauri::generate_handler![
             data_dir,
             window_controls_x,
@@ -236,6 +245,8 @@ pub fn run() {
             commands::list_documents,
             commands::most_recent_document,
             commands::cleanup_selftest,
+            commands::list_fonts,
+            commands::pick_and_import_font,
             commands::list_revisions,
             commands::load_revision,
             commands::restore_revision,
@@ -245,7 +256,7 @@ pub fn run() {
         .on_menu_event(|app, event| {
             // القص والنسخ واللصق والتحديد تبقى للنظام؛ هذه وحدها تُبثّ.
             let id = event.id().0.as_str();
-            if matches!(id, "undo" | "redo") {
+            if matches!(id, "undo" | "redo" | "settings") {
                 let _ = app.emit("luma://menu", id);
             }
         })
@@ -256,6 +267,14 @@ pub fn run() {
             let root =
                 luma_data_dir().ok_or_else(|| std::io::Error::other("تعذّر تحديد مجلد البيانات"))?;
             std::fs::create_dir_all(&root)?;
+            // **إعادة إتاحة الخطوط المستوردة عند كل إقلاع** — §٨.
+            // التسجيل في نطاق العملية يموت بإغلاقها، فيُعاد هنا قبل
+            // أن ترسم الواجهة أول حرف بخطٍّ اختاره المستخدم.
+            let registered = fonts::register_all(&root);
+            if registered > 0 {
+                eprintln!("[luma] أُعيدت إتاحة {registered} خطًّا مستوردًا");
+            }
+
             app.manage(commands::Storage { root });
 
             Ok(())

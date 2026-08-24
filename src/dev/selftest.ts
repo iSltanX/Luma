@@ -766,6 +766,179 @@ export async function runSelfTest(
     );
   }
 
+  // ── ٩ · المحرر المريح والتخصيص ─────────────────────────────
+  // ما لا يُقاس إلا داخل التطبيق: خطوط النظام الحقيقية، وتغطيتها،
+  // وأن تغيير العرض لا يمسّ الملف المحفوظ.
+  {
+    // ٩أ · التركيز طبقة عرض: لا يغيّر بايتًا في المحتوى
+    editor.setBlocks(buildLongDocument(600));
+    await paint();
+    const beforeFocus = JSON.stringify(editor.getBlocks());
+    editor.setFocusMode(true);
+    await paint();
+    const dimmed = document.querySelectorAll(".luma-dimmed").length;
+    const duringFocus = JSON.stringify(editor.getBlocks());
+    editor.setFocusMode(false);
+    await paint();
+    add(
+      "comfort-focus",
+      "التركيز يخفت المحيط ولا يغيّر بايتًا",
+      dimmed > 0 && beforeFocus === duringFocus,
+      `خُفِّتت ${dimmed} فقرة، والمحتوى ${beforeFocus === duringFocus ? "مطابق" : "تغيّر"}`,
+    );
+
+    // ٩ب · تفضيلات العرض متغيّرات على الجذر لا سمات على الكتل
+    //
+    // وبند بطارية العربية: «تغيير الثيم أو الخط أو الحجم يحفظ موضع
+    // المؤشر والتمرير».
+    const root = document.documentElement;
+    const savedSize = root.style.getPropertyValue("--luma-editor-size");
+    const savedMeasure = root.style.getPropertyValue("--editor-measure");
+    const beforePrefs = JSON.stringify(editor.getBlocks());
+
+    const scroller = document.querySelector(".scroller");
+    editor.focus();
+    editor.caretToEnd();
+    if (scroller) scroller.scrollTop = 300;
+    await paint();
+    const caretBefore = editor.caretRect();
+    const scrollBefore = scroller?.scrollTop ?? -1;
+
+    root.style.setProperty("--luma-editor-size", "26px");
+    root.style.setProperty("--editor-measure", "560px");
+    await paint();
+    const ed = host.querySelector<HTMLElement>(".luma-editor");
+    const applied = ed ? getComputedStyle(ed).fontSize : "";
+    const sheetNow = document.querySelector(".sheet");
+    const measured = sheetNow
+      ? Math.round(
+          sheetNow.getBoundingClientRect().width -
+            parseFloat(getComputedStyle(sheetNow).paddingInlineStart) * 2,
+        )
+      : -1;
+    const afterPrefs = JSON.stringify(editor.getBlocks());
+    const caretAfter = editor.caretRect();
+    const scrollAfter = scroller?.scrollTop ?? -2;
+
+    root.style.setProperty("--luma-editor-size", savedSize || "");
+    root.style.setProperty("--editor-measure", savedMeasure || "");
+    await paint();
+
+    add(
+      "prefs-display-only",
+      "تغيير الحجم والعرض يظهر فورًا ولا يمسّ المحتوى",
+      applied === "26px" && measured === 560 && beforePrefs === afterPrefs,
+      `الحجم ${applied} والعمود ${measured}px — المحتوى ${beforePrefs === afterPrefs ? "مطابق" : "تغيّر"}`,
+    );
+
+    // المؤشر يبقى موجودًا والتمرير لا يُصفَّر. الموضع بالبكسل يتغيّر
+    // حتمًا لأن النص أُعيد لفّه بمقاس أكبر — المصون هو ألّا يضيع.
+    add(
+      "prefs-keep-caret",
+      "تغيير الحجم والعرض يحفظ المؤشر والتمرير",
+      !!caretBefore && !!caretAfter && scrollBefore > 0 && scrollAfter > 0,
+      `المؤشر ${caretAfter ? "باقٍ" : "فُقد"} — التمرير ${Math.round(scrollBefore)}→${Math.round(scrollAfter)}`,
+    );
+  }
+
+  // ── ٩ج · الخطوط من مصادرها الثلاثة، بلا شبكة ────────────────
+  if (invoke) {
+    try {
+      type Font = {
+        id: string;
+        familyName: string;
+        source: string;
+        arabicCoverage: string;
+      };
+      const fonts = await invoke<Font[]>("list_fonts");
+      const system = fonts.filter((f) => f.source === "system");
+      const bundled = fonts.filter((f) => f.source === "bundled");
+      const arabic = system.filter((f) => f.arabicCoverage === "full").length;
+      const latinOnly = system.filter((f) => f.arabicCoverage === "none").length;
+
+      add(
+        "fonts-enumerated",
+        "خطوط النظام تُعدَّد بأسمائها وتُقرأ تغطيتها",
+        system.length > 20 && bundled.length === 1 && arabic > 0 && latinOnly > 0,
+        `${system.length} عائلة نظام — ${arabic} بتغطية عربية كاملة و${latinOnly} بلا عربية`,
+      );
+
+      // إتاحة فعلية لطبقة العرض: يُقاس عرض النص بخط عربي من النظام
+      const probe = document.createElement("span");
+      probe.textContent = "بسم الله الرحمن الرحيم";
+      probe.style.cssText =
+        "position:absolute;visibility:hidden;font-size:40px;white-space:nowrap";
+      document.body.appendChild(probe);
+      probe.style.fontFamily = '"Almarai", sans-serif';
+      const wAlmarai = probe.getBoundingClientRect().width;
+      const target = system.find((f) => f.arabicCoverage === "full");
+      probe.style.fontFamily = `"${target?.familyName ?? "Geeza Pro"}", sans-serif`;
+      const wSystem = probe.getBoundingClientRect().width;
+      probe.remove();
+
+      add(
+        "fonts-usable",
+        "خط النظام يصل طبقة العرض فعلًا",
+        wAlmarai > 0 && wSystem > 0 && Math.abs(wAlmarai - wSystem) > 1,
+        `«${target?.familyName ?? "?"}» يرسم النص بعرض ${Math.round(wSystem)}px مقابل ${Math.round(wAlmarai)}px لـAlmarai`,
+      );
+    } catch (e) {
+      add("fonts-enumerated", "خطوط النظام تُعدَّد", false, String(e));
+    }
+  }
+
+  // ── ٩د · الخط المستورد يصل نافذة العرض ──────────────────────
+  //
+  // **السؤال الحاسم في المسألة ٨.** نافذة العرض في WebKit عملية
+  // مستقلة عن عملية التطبيق، وتسجيل الخط في «نطاق العملية» قد لا
+  // يعبر إليها. لا يُفترض الجواب: يُقاس عرض نصّ بالخط المسجَّل ويُقارن
+  // ببديله. تساويهما يعني أن الخط لم يصل.
+  //
+  // يعمل هذا الفحص إن وُجد خط مستورد اسم عائلته `LumaProbeFont`
+  // (يزرعه سكربت التحقق)؛ وإلا يُتخطّى بلا ادّعاء.
+  if (invoke) {
+    try {
+      type Font = { familyName: string; source: string };
+      const fonts = await invoke<Font[]>("list_fonts");
+      const probe = fonts.find(
+        (f) => f.source === "imported" && f.familyName === "LumaProbeFont",
+      );
+      if (probe) {
+        // خط `@font-face` يُحمَّل عند أول استعمال، والقياس قبل تحميله
+        // يعطي مقاسات البديل. يُنتظر التحميل صراحةً.
+        let loaded = false;
+        try {
+          await document.fonts.load('40px "LumaProbeFont"', "بسم الله");
+          loaded = document.fonts.check('40px "LumaProbeFont"');
+        } catch {
+          loaded = false;
+        }
+
+        const span = document.createElement("span");
+        span.textContent = "بسم الله الرحمن الرحيم";
+        span.style.cssText =
+          "position:absolute;visibility:hidden;font-size:40px;white-space:nowrap";
+        document.body.appendChild(span);
+        span.style.fontFamily = "serif";
+        const wFallback = span.getBoundingClientRect().width;
+        span.style.fontFamily = '"LumaProbeFont", serif';
+        const wProbe = span.getBoundingClientRect().width;
+        span.remove();
+
+        const faces = document.getElementById("luma-imported-fonts");
+        add(
+          "fonts-imported-usable",
+          "الخط المستورد يصل نافذة العرض",
+          loaded && wProbe > 0 && Math.abs(wProbe - wFallback) > 1,
+          `تحميل: ${loaded ? "نجح" : "فشل"} — ${Math.round(wProbe)}px مقابل ${Math.round(wFallback)}px للبديل` +
+            ` — إعلان: ${faces?.textContent?.slice(0, 120) ?? "لا يوجد"}`,
+        );
+      }
+    } catch (e) {
+      add("fonts-imported-usable", "الخط المستورد يصل نافذة العرض", false, String(e));
+    }
+  }
+
   // ── ٨ز · الفحص لا يمسّ مستندات المستخدم ────────────────────
   if (invoke) {
     const after = await fingerprint();

@@ -169,6 +169,7 @@
   --size-column-min: 520px;
   --size-column-max: 800px;
   --size-panel: 320px;
+  --size-editor-font: 19px;
   --size-titlebar-slot: 220px;
   --size-comfort: 56px;
   --size-panel-mark: 3px;
@@ -186,6 +187,7 @@
   --size-focus-offset: 2px;
 
   --editor-measure: var(--size-column);
+  --editor-leading: 1.9;
 }
 
 :root {

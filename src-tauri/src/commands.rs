@@ -276,3 +276,42 @@ pub fn save_preferences(
     }
     storage.prefs().save(&value).map_err(to_message)
 }
+
+// ── الخطوط ───────────────────────────────────────────────────
+
+use crate::fonts::{self, FontReference};
+
+/// كل ما يمكن أن يكتب به المستخدم: مدمج ونظام ومستورد.
+#[tauri::command]
+pub fn list_fonts(storage: State<'_, Storage>) -> Vec<FontReference> {
+    fonts::available(&storage.root)
+}
+
+/// يفتح لوحة اختيار ملف أصلية ثم يستورد ما اختير.
+///
+/// اللوحة أصلية لا مرسومة — §١ **ثابت**: «ما يجب أن يأتي من المنصة».
+/// `None` تعني أن المستخدم ألغى، وهي ليست خطأ.
+#[tauri::command]
+pub fn pick_and_import_font(
+    app: tauri::AppHandle,
+    storage: State<'_, Storage>,
+) -> Result<Option<FontReference>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = app
+        .dialog()
+        .file()
+        .add_filter("خطوط", &["ttf", "otf", "ttc", "otc"])
+        .blocking_pick_file();
+
+    let Some(picked) = picked else {
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| format!("مسار غير صالح: {e}"))?;
+
+    fonts::import(&storage.root, &path)
+        .map(Some)
+        .map_err(|e| e.to_string())
+}

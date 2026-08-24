@@ -5,22 +5,26 @@
    */
   let {
     value = $bindable(0), min = 0, max = 100, step = 1, label, disabled = false,
-    format,
+    format, showLabel = true, onchange,
   }: {
     value?: number; min?: number; max?: number; step?: number;
     label: string; disabled?: boolean; format?: (v: number) => string;
+    /** يُطفأ داخل `صف إعداد`: الصف يحمل التسمية، وتبقى القيمة ظاهرة. */
+    showLabel?: boolean;
+    onchange?: (value: number) => void;
   } = $props();
 </script>
 
 <div class="wrap" class:disabled>
-  <div class="head">
-    <span class="label">{label}</span>
+  <div class="head" class:value-only={!showLabel}>
+    {#if showLabel}<span class="label">{label}</span>{/if}
     <span class="value">{format ? format(value) : value}</span>
   </div>
   <input
     type="range" bind:value {min} {max} {step} {disabled}
     aria-label={label}
     aria-valuetext={format ? format(value) : String(value)}
+    oninput={(e) => onchange?.(e.currentTarget.valueAsNumber)}
   />
 </div>
 
@@ -28,6 +32,8 @@
   .wrap { display: flex; flex-direction: column; gap: var(--space-008); }
   .wrap.disabled { opacity: 0.45; }
   .head { display: flex; justify-content: space-between; align-items: baseline; }
+  /* بلا تسمية تبقى القيمة عند **بداية** القراءة فوق المنزلق */
+  .head.value-only { justify-content: flex-start; }
   .label { font: var(--text-ui-07); letter-spacing: 0; color: var(--text-primary); }
   .value { font: var(--text-ui-10); letter-spacing: 0; color: var(--text-muted); }
 

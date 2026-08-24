@@ -29,9 +29,15 @@
     ontoggle,
     wordCount = 0,
     showWordCount = false,
+    comfort = false,
+    zenHidden = false,
+    typewriterBand = false,
     host = $bindable<HTMLElement | null>(null),
+    scroller = $bindable<HTMLElement | null>(null),
     panel,
     notice,
+    comfortBar,
+    comfortExit,
   }: {
     title: string;
     saveState: SaveState;
@@ -42,9 +48,24 @@
     wordCount?: number;
     /** **مخفي افتراضيًا** ويظهر بطلب المستخدم — `Luma.md` §٥ **ثابت**. */
     showWordCount?: boolean;
+    /**
+     * المحرر المريح — **غلاف واحد لا شاشة ثانية** (`Luma.md` §٧).
+     *
+     * الإطار نفسه يطوي أشرطته ولوحاته بدل أن تُركَّب شجرة أخرى:
+     * تركيب شجرة ثانية يعني تفكيك `EditorCore` وإعادة بنائها، وضياع
+     * المؤشر والتحديد ومكدّس التراجع في كل دخول وخروج.
+     */
+    comfort?: boolean;
+    /** طبقة Zen: تتراجع العناصر أثناء الكتابة وتعود عند الحاجة. */
+    zenHidden?: boolean;
+    /** شريط نطاق الآلة الكاتبة (`123:80`). */
+    typewriterBand?: boolean;
     host?: HTMLElement | null;
+    scroller?: HTMLElement | null;
     panel?: Snippet;
     notice?: Snippet;
+    comfortBar?: Snippet;
+    comfortExit?: Snippet;
   } = $props();
 
   /** اسم اللوحة لقارئ الشاشة — بديل الترويسة المحذوفة. */
@@ -53,18 +74,33 @@
   );
 </script>
 
-<div class="shell">
-  <header class="titlebar luma-chrome" data-tauri-drag-region>
-    <span class="title">{title}</span>
-    {#if showSaveStatus}
-      <div class="save"><SaveStatus state={saveState} /></div>
-    {/if}
-  </header>
+<div class="shell" class:comfort>
+  {#if !comfort}
+    <header class="titlebar luma-chrome" data-tauri-drag-region>
+      <span class="title">{title}</span>
+      {#if showSaveStatus}
+        <div class="save"><SaveStatus state={saveState} /></div>
+      {/if}
+    </header>
 
-  <SurfacesBar entries={OPEN_SURFACES} active={activeSurface} {ontoggle} />
+    <SurfacesBar entries={OPEN_SURFACES} active={activeSurface} {ontoggle} />
+  {:else}
+    <!-- شريط سحب النافذة يبقى: لا chrome نظام يُعاد رسمه، ولا نافذة
+         تصير غير قابلة للتحريك لأن المستخدم دخل وضع كتابة — §٧. -->
+    <div class="drag luma-chrome" data-tauri-drag-region></div>
+
+    {#if comfortExit}
+      <!-- وسيلة الخروج **ظاهرة دائمًا** ولا تعتمد على حركة المؤشر
+           وحدها — §٧ **ثابت**. عند نهاية القراءة (الزاوية اليسرى)
+           بعيدًا عن أول السطر. -->
+      <div class="exit luma-chrome" class:hidden={zenHidden}>
+        {@render comfortExit()}
+      </div>
+    {/if}
+  {/if}
 
   <div class="body">
-    {#if panel && activeSurface !== null}
+    {#if panel && activeSurface !== null && !comfort}
       <!-- اللوحة أولًا في الشجرة: هي عند بداية القراءة بصريًا، وهي
            التالية لمدخلها في ترتيب التركيز — فمن فتحها بلوحة المفاتيح
            يصلها بـTab واحدة. ولا حبس تركيز فيها — §١٠ **ثابت**. -->
@@ -74,13 +110,25 @@
     <div class="writing">
       {#if notice}<div class="notice">{@render notice()}</div>{/if}
 
-      <div class="scroller">
+      {#if typewriterBand}
+        <!-- `نطاق الآلة الكاتبة` (`123:80`): شريط ثابت الموضع، والنص
+             هو الذي يتحرّك إليه. مؤشر عرض بحت لا يلتقط نقرًا. -->
+        <div class="band" aria-hidden="true"></div>
+      {/if}
+
+      <div class="scroller" bind:this={scroller}>
         <div class="sheet">
           <div class="column" bind:this={host}></div>
         </div>
       </div>
 
-      {#if showWordCount}
+      {#if comfortBar}
+        <div class="comfort-bar luma-chrome" class:hidden={zenHidden}>
+          {@render comfortBar()}
+        </div>
+      {/if}
+
+      {#if showWordCount && !comfort}
         <div class="count luma-chrome"><Badge>{words(wordCount)}</Badge></div>
       {/if}
     </div>
@@ -89,6 +137,7 @@
 
 <style>
   .shell {
+    position: relative;
     flex: 1 1 auto;
     min-block-size: 0;
     display: flex;
@@ -215,5 +264,98 @@
     inset-block-end: var(--space-016);
     inset-inline-start: var(--space-020);
     pointer-events: none;
+  }
+
+  /* ── المحرر المريح ──────────────────────────────────────────
+     «تختفي المكتبة والقوائم والأدوات، وتتسع مساحة النص، ويبقى النص
+     والمؤشر ووسيلة الخروج» — `Luma.md` §٧ **ثابت**. */
+
+  /* شريط سحب رفيع مكان شريط النافذة: النافذة تبقى قابلة للتحريك */
+  .drag {
+    flex: none;
+    block-size: var(--size-titlebar);
+  }
+
+  /* لا ورقة في المحرر المريح: النص على السطح مباشرةً كما في الصفحة ١١.
+     البطاقة إطارٌ للقراءة، والمحرر المريح يزيل الإطارات. */
+  .comfort .sheet {
+    background: none;
+    border: none;
+    border-radius: 0;
+    /* حشوة تكفي ليبلغ السطر الأول والأخير نطاق الآلة الكاتبة — §٧.
+       القيمتان بالنسبة إلى ارتفاع النافذة لا بمقدار ثابت، فتصحّان
+       على كل ارتفاع. المرساة ٤٥٫٥٪ كما في `src/lib/typewriter.ts`. */
+    padding-block: 45.5vh 54.5vh;
+  }
+
+  .comfort .scroller {
+    padding-block: 0;
+  }
+
+  /* نطاق الآلة الكاتبة: شريط ثابت يستقرّ عنده السطر النشط */
+  .band {
+    position: absolute;
+    inset-inline: 0;
+    inset-block-start: 45.5%;
+    /* ارتفاع سطر واحد من نص القراءة */
+    block-size: calc(var(--luma-editor-size) * var(--luma-editor-leading));
+    transform: translateY(-50%);
+    background: var(--surface-paper);
+    pointer-events: none;
+    z-index: 0;
+  }
+
+  /* الشريط خلف النص لا فوقه */
+  .comfort .scroller {
+    position: relative;
+    z-index: 1;
+  }
+
+  .exit {
+    position: absolute;
+    inset-block-start: var(--space-024);
+    inset-inline-end: var(--space-024);
+    z-index: 2;
+    transition: opacity 200ms ease;
+  }
+  /* Zen يخفيها بصريًا، والتركيز عليها يعيدها فورًا: من وصلها
+     بلوحة المفاتيح يراها */
+  .exit.hidden {
+    opacity: 0;
+  }
+  .exit:focus-within {
+    opacity: 1;
+  }
+
+  /* شريط الطبقات ووسيلة الخروج — يتراجعان مع Zen ويعودان */
+  .comfort-bar {
+    position: absolute;
+    inset-block-end: var(--space-024);
+    inset-inline: 0;
+    /* فوق المُمرِّر: حشوة الورقة السفلية تمتدّ ٥٤٫٥vh فتغطّي أسفل
+       المساحة، ولولا هذا لالتقطت النقر بدل الرقاقات */
+    z-index: 2;
+    display: flex;
+    justify-content: center;
+    gap: var(--space-008);
+    pointer-events: none;
+    transition: opacity 200ms ease;
+  }
+  .comfort-bar :global(*) {
+    pointer-events: auto;
+  }
+  /* Zen: تتراجع العناصر ولا تُزال — إزالتها تنقل التركيز فجأة */
+  .comfort-bar.hidden {
+    opacity: 0;
+  }
+  .comfort-bar.hidden:focus-within {
+    opacity: 1;
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .comfort-bar,
+    .exit {
+      transition: none;
+    }
   }
 </style>

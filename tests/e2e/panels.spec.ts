@@ -282,13 +282,6 @@ test("تحويل الدور بالفأرة وبلوحة المفاتيح", async
   ).toBe("P");
 });
 
-test("لا زر عائم بلا سلوك في مساحة الكتابة", async ({ page }) => {
-  await page.goto("/");
-  await page.waitForSelector(EDITOR);
-  // زر المحرر المريح يعود في المرحلة ٦ ومعه سلوكه — لا قبله
-  await expect(page.locator("[data-comfort]")).toHaveCount(0);
-});
-
 test("عدّاد الكلمات مخفي افتراضيًا", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(EDITOR);

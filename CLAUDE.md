@@ -16,7 +16,7 @@
 
 ## الحالة
 
-المراحل ١ إلى ٥ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ في `src-tauri/src/storage/`، وطبقة الرموز في `src/tokens/`، وإطار المحرر ولوحتاه (المكتبة والسجل) في `src/components/`.
+المراحل ١ إلى ٦ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ في `src-tauri/src/storage/`، وطبقة الرموز في `src/tokens/`، وإطار المحرر ولوحتاه في `src/components/`، والمحرر المريح بطبقاته الثلاث والإعدادات وخدمة الخطوط (`src-tauri/src/fonts.rs`).
 
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
 طبقة الرموز مولَّدة: `node src/tokens/generate.mjs` بعد أي تغيير في `source.json`.
@@ -47,7 +47,7 @@ LUMA_SELFTEST=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/
 
 ```
 src/editor/    نواة المحرر — لا تحفظ ولا تعرف المكتبة (README فيها)
-src/lib/       autosave.ts · session.ts · bidi.ts · library.ts · surfaces.ts · fonts.css
+src/lib/       autosave · session · bidi · library · surfaces · preferences · typewriter · fonts
 src/dev/       ⚠️ أدوات تطوير لا تُشحن
 src/tokens/    ⚠️ مولَّد: source.json → tokens.css + themes.ts
 src/components/ مكتبة المكونات + الأيقونات الـ٢٢ — و`EditorShell` إطار كل شاشة
@@ -71,5 +71,7 @@ docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 8. **كل لون رمز ثيم** — ولا `var(--…)` غير معرَّف: كلاهما يسقط صامتًا ويحرسه اختبار.
 9. **فتح لوحة لا يغيّر عرض الورقة** — وهذا وحده ما يحفظ موضع التمرير. ولا لوحة تحبس التركيز، ولكلٍّ مدخل وزر إغلاق و`Esc`.
 10. **لا رمز محايد في وقتٍ يُعرض** — «منذ ساعتين» لا «١١:٤٥ م». الصياغة في `src/lib/bidi.ts`.
+11. **كل مقطع لاتيني داخل جملة عربية يُعزل** بـ`isolate()` — §٧ **ثابت**، وإلا رُسم في الطرف الخطأ.
+12. **لا تُبنى واجهة لميزة غير موجودة** — لا قسم إعدادات للصوت، ولا مدخل سطح لا يفتح شيئًا.
 
 قبل أي عمل على العربية أو الاتجاه: [docs/arabic-battery.md](docs/arabic-battery.md).

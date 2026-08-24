@@ -56,8 +56,13 @@ const SCROLL_THRESHOLD = 96;
 export interface EditorCoreOptions {
   /** يُستدعى بعد كل تغيير فعلي في المحتوى. */
   onChange?: (blocks: Block[]) => void;
-  /** يُستدعى عند تغيّر التحديد أو المحتوى — لطبقة الآلة الكاتبة. */
-  onSelectionChange?: () => void;
+  /**
+   * يُستدعى عند تغيّر التحديد أو المحتوى — لطبقة الآلة الكاتبة.
+   *
+   * `docChanged` يميّز الكتابة من الملاحة: الأولى تُمرَّر فورًا،
+   * والثانية تحتمل انزلاقًا.
+   */
+  onSelectionChange?: (docChanged: boolean) => void;
   /** تسمية مساحة الكتابة لقارئ الشاشة. */
   ariaLabel?: string;
 }
@@ -186,7 +191,7 @@ export class EditorCore {
           this.opts.onChange?.(this.toBlocks(next.doc));
         }
         if (tr.docChanged || tr.selectionSet) {
-          this.opts.onSelectionChange?.();
+          this.opts.onSelectionChange?.(tr.docChanged);
         }
       },
     });

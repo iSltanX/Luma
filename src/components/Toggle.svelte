@@ -7,13 +7,25 @@
    */
   let {
     checked = $bindable(false), label, disabled = false,
-  }: { checked?: boolean; label: string; disabled?: boolean } = $props();
+    showLabel = true, onchange,
+  }: {
+    checked?: boolean; label: string; disabled?: boolean;
+    /** يُطفأ داخل `صف إعداد`: الصف يحمل التسمية، وتكرارها ضجيج. */
+    showLabel?: boolean;
+    onchange?: (value: boolean) => void;
+  } = $props();
 </script>
 
 <label class="wrap" class:disabled>
-  <input type="checkbox" bind:checked {disabled} />
+  <input
+    type="checkbox"
+    bind:checked
+    {disabled}
+    aria-label={showLabel ? undefined : label}
+    onchange={(e) => onchange?.(e.currentTarget.checked)}
+  />
   <span class="track" aria-hidden="true"><span class="knob"></span></span>
-  <span class="text">{label}</span>
+  {#if showLabel}<span class="text">{label}</span>{/if}
 </label>
 
 <style>

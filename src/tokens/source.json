@@ -340,6 +340,7 @@
     "column-min": 520,
     "column-max": 800,
     "panel": 320,
+    "editor-font": 19,
     "titlebar-slot": 220,
     "comfort": 56,
     "panel-mark": 3,
@@ -358,6 +359,7 @@
   },
   "derived": {
     "_": "قيم مركَّبة من الرموز أعلاه. تبقى في المصدر الوحيد ولا تُكتب في ملفات المستهلكين.",
-    "editor-measure": "var(--size-column)"
+    "editor-measure": "var(--size-column)",
+    "editor-leading": "1.9"
   }
 }

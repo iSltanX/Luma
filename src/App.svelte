@@ -5,13 +5,23 @@
   import { EditorSession } from "./lib/session";
   import type { SaveState } from "./lib/autosave";
   import { theme } from "./lib/theme.svelte";
-  import { THEMES, type ThemeId } from "./tokens/themes";
+  import type { ThemeId } from "./tokens/themes";
   import EditorShell from "./components/EditorShell.svelte";
   import LibraryPanel from "./components/LibraryPanel.svelte";
   import HistoryPanel from "./components/HistoryPanel.svelte";
   import SelectionToolbar from "./components/SelectionToolbar.svelte";
+  import SettingsScreen from "./components/SettingsScreen.svelte";
+  import FontSheet from "./components/FontSheet.svelte";
+  import ComfortButton from "./components/ComfortButton.svelte";
+  import ToggleChip from "./components/ToggleChip.svelte";
+  import Button from "./components/Button.svelte";
   import Alert from "./components/Alert.svelte";
-  import { sinceLabel } from "./lib/bidi";
+  import { isolate, sinceLabel } from "./lib/bidi";
+  import { preferences } from "./lib/preferences.svelte";
+  import { typewriterScroll } from "./lib/typewriter";
+  import type { FontReference } from "./lib/fonts";
+  import { declareImportedFonts } from "./lib/font-faces";
+  import type { SettingsSectionId } from "./lib/settings";
   import type {
     DocumentCard,
     LibraryListing,
@@ -19,14 +29,15 @@
   } from "./lib/library";
   import type { SurfaceId } from "./lib/surfaces";
 
-  // المرحلة ٥ — الإطار والأسطح.
+  // المرحلة ٦ — المحرر المريح والتخصيص.
   //
   // هذا الملف **يوصّل ولا يصمّم**: كل شكل مكوّن من `src/components/`،
-  // وكل قاعدة سلوك من `Luma.md`. المحرر المريح والإعدادات في المرحلة ٦.
+  // وكل قاعدة سلوك من `Luma.md`، وكل حساب في `src/lib/`.
 
   type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
 
   let hostEl = $state<HTMLElement | null>(null);
+  let scrollerEl = $state<HTMLElement | null>(null);
   let count = $state(0);
   let title = $state("بدون عنوان");
   let saveState = $state<SaveState>({ kind: "idle" });
@@ -51,10 +62,23 @@
   let selection = $state<{ top: number; left: number } | null>(null);
   let role = $state<BlockRole | null>(null);
 
-  let showWordCount = $state(false);
+  // ── المحرر المريح والإعدادات ───────────────────────────────
+  const prefs = $derived(preferences.value);
+  let comfort = $state(false);
+  /** Zen: تتراجع العناصر أثناء الكتابة وتعود بحركة المؤشر أو Esc. */
+  let zenHidden = $state(false);
+  let zenTimer: ReturnType<typeof setTimeout> | null = null;
+
+  let settings = $state(false);
+  let settingsSection = $state<SettingsSectionId>("appearance");
+  let fontSheet = $state(false);
+  let fonts = $state<FontReference[]>([]);
+  let importing = $state(false);
+  let fontError = $state<string | null>(null);
+  let appVersion = $state("");
+  let dataDir = $state("");
+
   let gallery = $state(false);
-  /** مبدّل الثيم المؤقت: أداة تحقق لا عنصر منتج — الإعدادات مرحلة ٦. */
-  let devTools = $state(false);
 
   let session: EditorSession | null = null;
   let invoke: Invoke | null = null;
@@ -68,9 +92,23 @@
   let currentId = $state<string | null>(null);
   const cleanups: Array<() => void> = [];
 
-  function pickTheme(id: ThemeId) {
-    theme.apply(id);
-    void invoke?.("save_preferences", { value: { themeId: id } });
+  /**
+   * تغيير تفضيل: يُطبَّق فورًا ثم يُحفظ — «لا زر حفظ الإعدادات» §١٥.
+   *
+   * الثيم وحده يمرّ بمخزنه أيضًا لأنه يُطبَّق بسمة على الجذر لا
+   * بمتغيّر، وبقية التفضيلات متغيّرات CSS يضبطها المخزن.
+   */
+  function setPref<K extends keyof typeof prefs>(key: K, value: (typeof prefs)[K]) {
+    if (key === "themeId") theme.apply(value as ThemeId);
+    preferences.set(key, value);
+    if (key === "showWordCount" || key === "typewriterEnabled") syncLayers();
+    if (key === "focusEnabled") syncLayers();
+  }
+
+  /** يطبّق طبقتَي المحرر المريح على النواة. */
+  function syncLayers() {
+    editor.setFocusMode(comfort && prefs.focusEnabled);
+    if (countIsVisible) recount(session?.contents ?? []);
   }
 
   /**
@@ -80,7 +118,7 @@
    * مستندٍ كامل مع كل ضغطة مفتاح — وهو ما كان يجري — عملٌ يُرمى في
    * الحالة الغالبة، ويُحسّ تلعثمًا على النص الطويل.
    */
-  const countIsVisible = $derived(showWordCount || surface === "history");
+  const countIsVisible = $derived(prefs.showWordCount || surface === "history");
 
   function recount(blocks: readonly { text: string }[]) {
     let n = 0;
@@ -96,12 +134,97 @@
       if (countIsVisible) recount(blocks);
       session?.handleChange(blocks);
       currentId = session?.currentId ?? null;
+      if (comfort && prefs.zenEnabled) zenRecede();
     },
     // التحديد يقرّر ظهور الشريط: نصٌّ محدَّد يُظهره، وأول حرف يُكتب
     // يطوي التحديد فيختفي. «يختفي عند استئناف الكتابة» — §٥ **ثابت**.
-    onSelectionChange: () => syncSelection(),
+    onSelectionChange: (docChanged) => {
+      syncSelection();
+      runTypewriter(docChanged);
+    },
     ariaLabel: "مساحة الكتابة",
   });
+
+  // ── المحرر المريح ──────────────────────────────────────────
+
+  /**
+   * الآلة الكاتبة — §٧ **ثابت في السلوك**.
+   *
+   * الحساب في `src/lib/typewriter.ts` بلا DOM؛ هنا القياس والتنفيذ.
+   * لا يعمل إلا داخل المحرر المريح وبطبقته مفعَّلة: «لكلٍّ تعطيل
+   * مستقل» — معيار اكتمال المرحلة ٦.
+   */
+  function runTypewriter(typing = false) {
+    if (!comfort || !prefs.typewriterEnabled) return;
+    const sc = scrollerEl;
+    const caret = editor.caretRect();
+    if (!sc || !caret) return;
+
+    const box = sc.getBoundingClientRect();
+    const decision = typewriterScroll(
+      caret.top,
+      caret.height,
+      { height: box.height, top: box.top },
+      { typing, reduceMotion: reduceMotion() },
+    );
+    if (decision.delta === 0) return;
+
+    sc.scrollTo({
+      top: sc.scrollTop + decision.delta,
+      behavior: decision.smooth ? "smooth" : "auto",
+    });
+  }
+
+  /** تقليل الحركة: تفضيل النظام أو تفضيل Luma — أيّهما كان. */
+  function reduceMotion(): boolean {
+    return (
+      prefs.reduceMotionOverride ||
+      window.matchMedia("(prefers-reduced-motion: reduce)").matches
+    );
+  }
+
+  /** Zen: تتراجع العناصر مع الكتابة، وتعود بحركة المؤشر أو بالتركيز. */
+  function zenRecede() {
+    zenHidden = true;
+    if (zenTimer) clearTimeout(zenTimer);
+  }
+
+  function zenReveal() {
+    if (!zenHidden) return;
+    zenHidden = false;
+  }
+
+  function enterComfort() {
+    if (comfort) return;
+    // إغلاق ما يزاحم: «تختفي المكتبة والقوائم والأدوات» §٧
+    exitPreview();
+    surface = null;
+    settings = false;
+    comfort = true;
+    editor.setFocusMode(prefs.focusEnabled);
+    editor.focus();
+    // أول تمركز بعد أن يتّسع التخطيط ويُعاد حساب الحشوة
+    requestAnimationFrame(() => runTypewriter());
+  }
+
+  /**
+   * الخروج **لا يغيّر موضع المؤشر ولا حالة النص** — §٧ **ثابت**.
+   *
+   * لا يُلمس المحتوى ولا التحديد: تُطفأ طبقة التركيز (وهي عرض بحت)
+   * ويعود الإطار بأشرطته.
+   */
+  function exitComfort() {
+    if (!comfort) return;
+    comfort = false;
+    zenHidden = false;
+    editor.setFocusMode(false);
+    editor.focus();
+  }
+
+  function toggleComfort() {
+    if (comfort) exitComfort();
+    else enterComfort();
+  }
 
   function syncSelection() {
     const rect = editor.selectionRect();
@@ -252,16 +375,107 @@
   // ── لوحة المفاتيح ──────────────────────────────────────────
 
   function onKeydown(e: KeyboardEvent) {
-    // «Esc يغلق أي لوحة مفتوحة» — §١٠ **ثابت**
-    if (e.key === "Escape" && surface !== null) {
+    // ⌃⌘F يفتح المحرر المريح ويخرج منه — الاختصار المعلن في §١٥
+    if (e.key.toLowerCase() === "f" && e.metaKey && e.ctrlKey) {
       e.preventDefault();
-      closeSurface();
+      toggleComfort();
+      return;
+    }
+
+    if (e.key !== "Escape") {
+      if (comfort && prefs.zenEnabled) zenRecede();
+      return;
+    }
+
+    // Esc: الأقرب أولًا — ورقة الخط، ثم الإعدادات، ثم المحرر المريح،
+    // ثم اللوحة. طبقةٌ واحدة في كل ضغطة، فلا يُفاجأ المستخدم بخروج
+    // من وضعٍ لم يقصده.
+    e.preventDefault();
+    if (fontSheet) fontSheet = false;
+    else if (settings) settings = false;
+    else if (comfort) exitComfort();
+    else if (surface !== null) closeSurface();
+  }
+
+  /**
+   * حركة المؤشر تُعيد ما أخفاه Zen — ومعها Esc ووسيلة ظاهرة.
+   *
+   * **حركة حقيقية لا حدثًا**: WebKit يبثّ `pointermove` بإحداثيات لم
+   * تتغيّر بعد كل تمرير ليحدّث حالة التمرير تحت المؤشر. ومؤشرٌ ساكن
+   * فوق النافذة كان يُلغي Zen مع كل سطر يُكتب — فلا يتراجع شيء أبدًا.
+   */
+  let pointerAt = { x: -1, y: -1 };
+  function onPointerMove(e: PointerEvent) {
+    const moved =
+      Math.abs(e.clientX - pointerAt.x) > 2 || Math.abs(e.clientY - pointerAt.y) > 2;
+    pointerAt = { x: e.clientX, y: e.clientY };
+    if (moved && comfort && zenHidden) zenReveal();
+  }
+
+  // ── الإعدادات ──────────────────────────────────────────────
+
+  async function openSettings() {
+    exitPreview();
+    surface = null;
+    comfort = false;
+    editor.setFocusMode(false);
+    settings = true;
+    await refreshFonts();
+  }
+
+  function closeSettings() {
+    settings = false;
+    fontSheet = false;
+    editor.focus();
+  }
+
+  /** يحوّل مسارًا محليًّا إلى عنوان أصول — يُضبط عند وصل النواة. */
+  let toAssetUrl: ((p: string) => string) | null = null;
+
+  async function refreshFonts() {
+    if (!invoke) return;
+    try {
+      fonts = await invoke<FontReference[]>("list_fonts");
+      // الخطوط المستوردة لا تصل نافذة العرض بتسجيل النواة وحده — §٨
+      if (toAssetUrl) declareImportedFonts(fonts, toAssetUrl);
+      // «خط اختفى من النظام بعد اختياره يعود بأمان» — §٨ **ثابت**
+      if (fonts.length > 0 && !fonts.some((f) => f.id === prefs.fontFamily)) {
+        preferences.fallBackToBundled();
+      }
+    } catch (e) {
+      // تعذّر تعداد الخطوط لا يمنع الكتابة — §١٧ مبدأ ٤
+      console.error("[luma] تعذّر تعداد الخطوط:", e);
+    }
+  }
+
+  function chooseFont(font: FontReference) {
+    fontError = null;
+    preferences.set("fontFamily", font.familyName);
+    preferences.set("fontSource", font.source);
+  }
+
+  async function importFont() {
+    if (!invoke || importing) return;
+    importing = true;
+    fontError = null;
+    try {
+      const font = await invoke<FontReference | null>("pick_and_import_font");
+      if (font) {
+        await refreshFonts();
+        chooseFont(font);
+      }
+    } catch (e) {
+      // «ملف خط تالف يُرفض بوضوح ولا يؤثر في المستند» — §١١ **ثابت**
+      fontError = e instanceof Error ? e.message : String(e);
+    } finally {
+      importing = false;
     }
   }
 
   onMount(async () => {
-    // معرض المكونات على طبقة الويب — لـPlaywright وحده
-    if (new URLSearchParams(location.search).has("gallery")) {
+    // أدوات تحقق على طبقة الويب — لـPlaywright وحده
+    const query = new URLSearchParams(location.search);
+    if (query.has("gallery")) {
       gallery = true;
       return;
     }
@@ -272,6 +486,8 @@
 
     window.addEventListener("keydown", onKeydown);
     cleanups.push(() => window.removeEventListener("keydown", onKeydown));
+    window.addEventListener("pointermove", onPointerMove, { passive: true });
+    cleanups.push(() => window.removeEventListener("pointermove", onPointerMove));
 
     // خارج `Luma.app` — على خادم التطوير — يعمل المحرر بلا تخزين.
     //
@@ -279,13 +495,28 @@
     // في المتصفح بلا خطأ ثم يفشل أول `invoke` — فكان الفرع الخطأ يُتَّخذ
     // ويُترك وعدٌ مرفوض بلا معالج.
     if (!("__TAURI_INTERNALS__" in window)) {
-      devTools = true;
+      // شاشة الإعدادات بلا نواة: تخطيطها وقواعدها تُفحص، والخطوط
+      // والحفظ يُفحصان داخل `Luma.app` حيث توجد النواة.
+      if (query.has("settings")) settings = true;
       return;
     }
 
     const core = await import("@tauri-apps/api/core");
     invoke = core.invoke;
     const call = core.invoke;
+    toAssetUrl = core.convertFileSrc;
+
+    try {
+      const { getVersion } = await import("@tauri-apps/api/app");
+      appVersion = await getVersion();
+    } catch {
+      appVersion = "";
+    }
+    try {
+      dataDir = await call<string>("data_dir");
+    } catch {
+      dataDir = "";
+    }
 
     // موضع أزرار النظام يُقاس ولا يُفترض — ADR ٠٠٠٣.
     try {
@@ -300,12 +531,20 @@
 
     // التفضيلات أولًا: الثيم يُطبَّق قبل أول رسم للمحتوى فلا وميض
     try {
-      const prefs = await call<Record<string, unknown>>("load_preferences");
-      theme.hydrate(prefs["themeId"]);
-      showWordCount = prefs["showWordCount"] === true;
+      const stored = await call<Record<string, unknown>>("load_preferences");
+      preferences.hydrate(stored, document.documentElement, (value) => {
+        void call("save_preferences", { value });
+      });
+      theme.hydrate(preferences.value.themeId);
     } catch {
+      preferences.hydrate({}, document.documentElement, () => {});
       theme.hydrate(undefined);
     }
+
+    // **الخطوط قبل أول رسم للنص.**
+    // مستندٌ يُستأنف بخط مستورد يجب أن يُرسم به لا ببديله، وخطٌّ اختفى
+    // من النظام يجب أن يعود إلى Almarai قبل أن يراه المستخدم — §٨.
+    await refreshFonts();
 
     session = new EditorSession({
       editor,
@@ -325,6 +564,7 @@
         await listen<string>("luma://menu", (e) => {
           if (e.payload === "undo") editor.undo();
           else if (e.payload === "redo") editor.redo();
+          else if (e.payload === "settings") void openSettings();
         }),
       );
 
@@ -334,6 +574,7 @@
       // الإغلاق مؤجَّل: تُكتب آخر دفقة ثم يُغلق فعلًا
       cleanups.push(
         await listen("luma://flush-and-close", async () => {
+          preferences.flush();
           await session?.flush();
           const { getCurrentWindow } = await import("@tauri-apps/api/window");
           await getCurrentWindow().destroy();
@@ -395,7 +636,6 @@
     // التجربة اليدوية بالماوس ولوحة المفاتيح.
     const stage = await call<string>("demo_stage");
     if (stage) {
-      devTools = true;
       if (stage === "library" || stage === "history") {
         await toggleSurface(stage);
       } else if (stage === "preview") {
@@ -403,14 +643,23 @@
         const first = revisions[0];
         if (first) await preview(first.id);
       } else if (stage === "count") {
-        showWordCount = true;
+        preferences.set("showWordCount", true);
         count = editor.wordCount;
+      } else if (stage === "comfort") {
+        enterComfort();
+      } else if (stage.startsWith("settings")) {
+        const part = stage.split(":")[1];
+        if (part) settingsSection = part as SettingsSectionId;
+        await openSettings();
+      } else if (stage === "fonts") {
+        await openSettings();
+        settingsSection = "writing";
+        fontSheet = true;
       }
     }
 
     if (await call<boolean>("demo_mode")) {
-      devTools = true;
-      showWordCount = true;
+      preferences.set("showWordCount", true);
       const { buildLongDocument } = await import("./dev/corpus");
       const doc: Block[] = buildLongDocument(20000);
       // **لا يُمرَّر على الجلسة:** كان يفعل، فيُكتب مستند العرض
@@ -447,8 +696,12 @@
     activeSurface={surface}
     ontoggle={toggleSurface}
     wordCount={count}
-    {showWordCount}
+    showWordCount={prefs.showWordCount}
+    {comfort}
+    zenHidden={comfort && prefs.zenEnabled && zenHidden}
+    typewriterBand={comfort && prefs.typewriterEnabled}
     bind:host={hostEl}
+    bind:scroller={scrollerEl}
   >
     {#snippet panel()}
       {#if surface === "library"}
@@ -472,6 +725,35 @@
       {/if}
     {/snippet}
 
+    {#snippet comfortExit()}
+      <Button kind="ghost" size="sm" onclick={exitComfort} data-exit-comfort>
+        إنهاء المحرر المريح — {isolate("Esc")}
+      </Button>
+    {/snippet}
+
+    {#snippet comfortBar()}
+      {#if comfort}
+        <!-- «كل طبقة تُطفأ من الشريط السفلي أو من الإعدادات» — الصفحة ١١.
+             ثلاث رقاقات لا لوحة تحكم: §٧ يمنع اللوحة داخل الوضع. -->
+        <ToggleChip
+          label={isolate("Zen")}
+          name="Zen"
+          on={prefs.zenEnabled}
+          onclick={() => setPref("zenEnabled", !prefs.zenEnabled)}
+        />
+        <ToggleChip
+          label="التركيز"
+          on={prefs.focusEnabled}
+          onclick={() => setPref("focusEnabled", !prefs.focusEnabled)}
+        />
+        <ToggleChip
+          label="الآلة الكاتبة"
+          on={prefs.typewriterEnabled}
+          onclick={() => setPref("typewriterEnabled", !prefs.typewriterEnabled)}
+        />
+      {/if}
+    {/snippet}
+
     {#snippet notice()}
       {#if previewAt !== null}
         <Alert
@@ -482,6 +764,37 @@
       {/if}
     {/snippet}
   </EditorShell>
+
+  <!-- زر المحرر المريح عائم في الزاوية — يعود في هذه المرحلة ومعه
+       سلوكه: ⌃⌘F يفعل الشيء نفسه. -->
+  {#if !comfort && !settings}
+    <ComfortButton onclick={enterComfort} />
+  {/if}
+
+  {#if settings}
+    <SettingsScreen
+      {prefs}
+      section={settingsSection}
+      {fonts}
+      version={appVersion}
+      {dataDir}
+      onsection={(id) => (settingsSection = id)}
+      onchange={setPref}
+      onpickfont={() => (fontSheet = true)}
+      onclose={closeSettings}
+    />
+    {#if fontSheet}
+      <FontSheet
+        {fonts}
+        selected={prefs.fontFamily}
+        {importing}
+        error={fontError}
+        onselect={chooseFont}
+        onimport={importFont}
+        onclose={() => (fontSheet = false)}
+      />
+    {/if}
+  {/if}
 
   {#if selection}
     <div
@@ -503,21 +816,6 @@
     </div>
   {/if}
 
-  {#if devTools}
-    <!-- مبدّل الثيم — أداة تحقق، لا يظهر في التطبيق العادي -->
-    <div class="themes luma-chrome">
-      {#each THEMES as t (t.id)}
-        <button
-          type="button"
-          class="tchip"
-          class:on={theme.id === t.id}
-          data-theme-switch={t.id}
-          aria-pressed={theme.id === t.id}
-          onclick={() => pickTheme(t.id as ThemeId)}>{t.name}</button
-        >
-      {/each}
-    </div>
-  {/if}
 {/if}
 
 <style>
@@ -530,31 +828,4 @@
     z-index: 2;
   }
 
-  .themes {
-    position: absolute;
-    inset-block-end: var(--space-012);
-    inset-inline-end: var(--space-096);
-    display: flex;
-    gap: var(--space-004);
-  }
-  .tchip {
-    font: var(--text-ui-10);
-    letter-spacing: 0;
-    padding: var(--space-004) var(--space-008);
-    min-block-size: var(--size-btn-sm);
-    border-radius: var(--radius-sm);
-    border: 1px solid var(--border-control);
-    background: var(--surface-paper);
-    color: var(--text-secondary);
-    cursor: pointer;
-  }
-  .tchip.on {
-    background: var(--accent-subtle);
-    color: var(--accent-text);
-    border-color: var(--accent-graphic);
-  }
-  .tchip:focus-visible {
-    outline: var(--size-focus-ring) solid var(--accent-graphic);
-    outline-offset: var(--size-focus-offset);
-  }
 </style>

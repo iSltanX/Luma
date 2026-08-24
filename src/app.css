@@ -35,6 +35,23 @@ body {
   overflow: hidden;
 }
 
+/* ── تفضيلات عرض المحرر ────────────────────────────────────────
+   ثلاث قيم يملكها المستخدم (`Luma.md` §١١ و§١٥): عائلة الخط وحجمه
+   وتباعد أسطره. تُعرَّف هنا بقيم التصميم، وتُستبدل وقت التشغيل على
+   جذر المستند من التفضيلات.
+
+   **لا تمسّ المحتوى المخزَّن** — §١٧ مبدأ ٣: هي خصائص عرض على عنصر
+   واحد، لا سمات على الكتل.
+
+   سلسلة الخطوط هي **سلسلة الرجوع الآمن** نفسها (§٨): الخط المختار
+   أولًا، وAlmarai بعده — فالنطاقات العربية التي لا يغطّيها المختار
+   تُرسم بـAlmarai تلقائيًا بلا كود يتدخّل. */
+:root {
+  --luma-editor-family: "Almarai", system-ui, sans-serif;
+  --luma-editor-size: var(--size-editor-font);
+  --luma-editor-leading: var(--editor-leading);
+}
+
 /* ── جانب أزرار النافذة ────────────────────────────────────────
    شريط النافذة ثلاثة أعمدة: طرفٌ محجوز لأزرار النظام، وطرفٌ لحالة
    الحفظ، والعنوان بينهما. أيّ طرفٍ لأيٍّ **يقرّره النظام لا اتجاه
@@ -82,7 +99,9 @@ body {
   outline-offset: var(--size-focus-offset);
 }
 
-/* تقليل الحركة: كل انتقال يصبح فوريًا بلا فقد وظيفة — §١٣ **ثابت** */
+/* تقليل الحركة: كل انتقال يصبح فوريًا بلا فقد وظيفة — §١٣ **ثابت**
+   مصدران يجمعان ولا يلغي أحدهما الآخر: تفضيل النظام، وتفضيل Luma
+   (`reduceMotionOverride` في §١٥). من أطفأ الحركة في أحدهما أطفأها. */
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,
@@ -92,4 +111,13 @@ body {
     transition-duration: 0.01ms !important;
     scroll-behavior: auto !important;
   }
+}
+
+:root[data-reduce-motion="on"] *,
+:root[data-reduce-motion="on"] *::before,
+:root[data-reduce-motion="on"] *::after {
+  animation-duration: 0.01ms !important;
+  animation-iteration-count: 1 !important;
+  transition-duration: 0.01ms !important;
+  scroll-behavior: auto !important;
 }

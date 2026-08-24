@@ -13,9 +13,17 @@ crate-type = ["staticlib", "cdylib", "rlib"]
 tauri-build = { version = "2", features = [] }
 
 [dependencies]
-tauri = { version = "2", features = [] }
+tauri = { version = "2", features = ["protocol-asset"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
+# لوحة اختيار الملف الأصلية — §١ «ما يجب أن يأتي من المنصة».
+tauri-plugin-dialog = "2"
+
+# تعداد خطوط النظام وتسجيل المستوردة وقراءة جدول محارفها — §٨.
+# بلا شبكة: كل ما تحتاجه CoreText محلي.
+[target.'cfg(target_os = "macos")'.dependencies]
+core-text = "21"
+core-foundation = "0.10"
 
 [profile.release]
 codegen-units = 1
