@@ -23,6 +23,24 @@ for (const id of THEMES) {
   });
 }
 
+/**
+ * مكونات المرحلة ٥ في الثيمات الخمسة.
+ *
+ * `[data-gallery]` صندوق تمرير بارتفاع النافذة، فلقطته لا تتجاوز أول
+ * شاشة منه — ولذلك يُلتقط الوعاء المخصص لا المعرض كله.
+ */
+for (const id of THEMES) {
+  test(`ثيم ${id} — الأسطح والصفوف`, async ({ page }) => {
+    await page.click(`[data-theme-switch="${id}"]`);
+    await page.locator("[data-surfaces]").scrollIntoViewIfNeeded();
+    await page.waitForTimeout(250);
+    await expect(page.locator("[data-surfaces]")).toHaveScreenshot(
+      `surfaces-${id}.png`,
+      { maxDiffPixelRatio: 0.01, animations: "disabled" },
+    );
+  });
+}
+
 test("كل ثيم يعطي خلفية متمايزة", async ({ page }) => {
   const seen = new Set<string>();
   for (const id of THEMES) {

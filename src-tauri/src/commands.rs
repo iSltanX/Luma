@@ -167,6 +167,35 @@ pub fn most_recent_document(storage: State<'_, Storage>) -> Result<Option<String
     storage.docs().most_recent().map_err(to_message)
 }
 
+/// بادئة معرّفات ما ينشئه الفحص الذاتي.
+const SELFTEST_PREFIX: &str = "selftest-";
+
+/// يزيل ما خلّفه الفحص الذاتي من مستندات. **أداة تطوير.**
+///
+/// الفحص يكتب مستندات حقيقية في مجلد بيانات المستخدم ليختبر المسار
+/// الحقيقي، فكان يتركها بعده: مكتبةٌ ممتلئة بضجيج أداة، وأسوأ من ذلك
+/// أن الاستئناف يفتح آخرها بدل نصّ المستخدم.
+///
+/// **لا يحذف إلا ما تبدأ معرّفاته بـ`selftest-`.** لا يوجد أمر حذف عام
+/// في Luma — «لا حذف» قرارٌ في `Luma.md` §٦، وهذا لا ينقضه.
+#[tauri::command]
+pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
+    let docs = storage.docs();
+    let (list, damaged) = docs.list().map_err(to_message)?;
+    let mut removed = 0;
+    for id in list
+        .into_iter()
+        .map(|d| d.id)
+        .chain(damaged)
+        .filter(|id| id.starts_with(SELFTEST_PREFIX))
+    {
+        if docs.delete(&id).is_ok() {
+            removed += 1;
+        }
+    }
+    Ok(removed)
+}
+
 // ── السجل الزمني ─────────────────────────────────────────────
 
 #[tauri::command]

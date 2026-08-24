@@ -1,8 +1,8 @@
 //! نواة Luma الأصلية.
 //!
-//! المرحلة ١ — بوابة القدرات. مسؤوليتها هنا محصورة في:
-//! تهيئة النافذة، والقائمة الأصلية، وتثبيت مسار التخزين.
-//! التخزين والحفظ واللقطات تدخل في المرحلة ٣.
+//! مسؤوليتها: تهيئة النافذة، والقائمة الأصلية، وتثبيت مسار التخزين،
+//! وإبلاغ الواجهة بما لا تراه من طبقة النظام — مثل الجانب الذي يضع
+//! فيه macOS أزرار النافذة.
 
 pub mod commands;
 pub mod storage;
@@ -36,11 +36,106 @@ fn data_dir() -> Result<String, String> {
     Ok(dir.to_string_lossy().into_owned())
 }
 
+/// إحداثي **س** لزر إغلاق النافذة داخل النافذة، أو `None` إن تعذّر قياسه.
+///
+/// [ADR ٠٠٠٣](../../docs/decisions/0003-macos-rtl-window-chrome.md) ألزم
+/// المرحلة ٥ بهذا: الحشوة المحجوزة في شريط النافذة تتبع **جانب الأزرار
+/// الفعلي كما يقرره النظام**، لا اتجاه محتوى التطبيق. محتوى Luma دائمًا
+/// RTL فطرفه المنطقي `end` هو اليسار دائمًا — وعلى نظام إنجليزي يضع
+/// macOS الأزرار يسارًا أيضًا، فتقع حالة الحفظ فوقها.
+///
+/// **يُقاس الزر نفسه ولا يُستنتج الجانب من اللغة.** جُرِّب استنتاجه من
+/// `NSApplication.userInterfaceLayoutDirection` فأعطى «يسار» على جهاز
+/// نظامه عربي تقع فيه أزرار Luma يمينًا فعلًا — لأن الخاصية تُشتق من
+/// لغات الحزمة لا من لغة النظام. القياس لا يخطئ في هذا.
+///
+/// الواجهة تقارنه بعرضها: نافذة العرض تملأ النافذة (`titleBarStyle:
+/// Overlay`) فوحدة القياس واحدة في الطرفين.
+#[cfg(target_os = "macos")]
+#[tauri::command]
+fn window_controls_x(window: tauri::Window) -> Option<f64> {
+    use std::ffi::{c_char, c_void, CString};
+
+    /// `NSWindowButton.closeButton`
+    const CLOSE_BUTTON: isize = 0;
+
+    /// `NSPoint` — بنية ١٦ بايت من عددين عشريين.
+    ///
+    /// حجمها هو ما يجعلها آمنة عبر `objc_msgSend` الخام: تمرّ في
+    /// المسجّلات على معماريتَي Mac كلتيهما. `NSRect` (٣٢ بايت) تعود
+    /// بآليتين مختلفتين وتحتاج `objc_msgSend_stret` على إحداهما،
+    /// ولذلك يُقاس نقطةً لا مستطيلًا.
+    #[repr(C)]
+    #[derive(Clone, Copy)]
+    struct NsPoint {
+        x: f64,
+        y: f64,
+    }
+
+    extern "C" {
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    type SendButton = unsafe extern "C" fn(*mut c_void, *mut c_void, isize) -> *mut c_void;
+    type SendPoint =
+        unsafe extern "C" fn(*mut c_void, *mut c_void, NsPoint, *mut c_void) -> NsPoint;
+
+    let ns_window = window.ns_window().ok()?;
+    if ns_window.is_null() {
+        return None;
+    }
+    let standard_button = CString::new("standardWindowButton:").ok()?;
+    let convert = CString::new("convertPoint:toView:").ok()?;
+
+    // SAFETY: محدِّدان ثابتان من AppKit بتوقيعين مطابقين لما تعلنه:
+    // الأول يأخذ `NSWindowButton` ويعيد `NSButton*`، والثاني يأخذ
+    // `NSPoint` و`NSView*` ويعيد `NSPoint`. المستقبِل نافذة حيّة
+    // تملكها Tauri، والتحويل إلى `nil` يعني إحداثيات النافذة.
+    unsafe {
+        let send_button: SendButton = std::mem::transmute(objc_msgSend as *const ());
+        let button = send_button(
+            ns_window.cast(),
+            sel_registerName(standard_button.as_ptr()),
+            CLOSE_BUTTON,
+        );
+        if button.is_null() {
+            return None;
+        }
+        let send_point: SendPoint = std::mem::transmute(objc_msgSend as *const ());
+        let origin = send_point(
+            button,
+            sel_registerName(convert.as_ptr()),
+            NsPoint { x: 0.0, y: 0.0 },
+            std::ptr::null_mut(),
+        );
+        Some(origin.x)
+    }
+}
+
+/// خارج macOS لا يرسم النظام أزرارًا فوق واجهة Luma.
+#[cfg(not(target_os = "macos"))]
+#[tauri::command]
+fn window_controls_x(_window: tauri::Window) -> Option<f64> {
+    None
+}
+
 /// وضع عرض بصري للتحقق اليدوي: مستند محمَّل وتركيز مفعَّل.
 /// يُضبط بـ`LUMA_DEMO=1`. أداة مرحلة ١ فقط.
 #[tauri::command]
 fn demo_mode() -> bool {
     std::env::var("LUMA_DEMO").is_ok_and(|v| v == "1")
+}
+
+/// مشهد عرض بصري يُطلب بالاسم — `LUMA_STAGE=library` مثلًا. أداة تطوير.
+///
+/// موجود لأن لا WebDriver لـWKWebView على macOS، ولأن الوصول المساعد
+/// (الذي تحتاجه الأتمتة لإرسال نقرة) صلاحية يمنحها المستخدم لا الكود.
+/// فتُفتح اللوحة من داخل التطبيق لتُلتقط صورتها. **لا يغني عن التجربة
+/// اليدوية بالماوس ولوحة المفاتيح** — تلك بند تحقق يدوي.
+#[tauri::command]
+fn demo_stage() -> String {
+    std::env::var("LUMA_STAGE").unwrap_or_default()
 }
 
 /// وضع الفحص الذاتي — يُضبط بـ`LUMA_SELFTEST=1`. أداة تطوير.
@@ -130,7 +225,9 @@ pub fn run() {
     tauri::Builder::default()
         .invoke_handler(tauri::generate_handler![
             data_dir,
+            window_controls_x,
             demo_mode,
+            demo_stage,
             selftest_mode,
             gallery_mode,
             write_report,
@@ -138,6 +235,7 @@ pub fn run() {
             commands::load_document,
             commands::list_documents,
             commands::most_recent_document,
+            commands::cleanup_selftest,
             commands::list_revisions,
             commands::load_revision,
             commands::restore_revision,

@@ -124,9 +124,15 @@ describe("قواعد الطباعة العربية في الرموز", () => {
 describe("كل متغيّر مستخدَم معرَّف في طبقة الرموز", () => {
   // متغيّر غير معرَّف لا يرمي خطأ: تسقط القاعدة صامتةً فتنهار المقاسات
   // بلا أثر. هذا ما حدث فعلًا حين تغيّرت أسماء الرموز.
-  const css = readFileSync(join(SRC, "tokens", "tokens.css"), "utf8");
+  //
+  // مصدرا التعريف: طبقة الرموز المولَّدة، و`app.css` للمتغيّرات
+  // التخطيطية العامة التي لا تأتي من Figma — مثل جانب أزرار النافذة
+  // (ADR ٠٠٠٣). كلاهما محمَّل قبل أي مكوّن، والحارس يبقى قادرًا على
+  // كشف الأخطاء المطبعية لأنها لن تكون معرَّفة في أيٍّ منهما.
+  const tokens = readFileSync(join(SRC, "tokens", "tokens.css"), "utf8");
+  const globals = readFileSync(join(SRC, "app.css"), "utf8");
   const defined = new Set(
-    [...css.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1]!),
+    [...`${tokens}\n${globals}`.matchAll(/^\s*(--[\w-]+):/gm)].map((m) => m[1]!),
   );
 
   const consumers = files(SRC, [".css", ".svelte"]).filter(

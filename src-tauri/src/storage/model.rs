@@ -129,13 +129,25 @@ pub struct DocumentSummary {
 
 impl From<&Document> for DocumentSummary {
     fn from(d: &Document) -> Self {
-        let text: String = d
+        // المقتطف يبدأ **بعد** السطر الذي صار عنوانًا.
+        //
+        // بدون هذا يتكرّر العنوان في صف المكتبة: مرة عنوانًا ومرة أول
+        // المقتطف. والتخطّي مشروط بأن يكون العنوان مشتقًّا فعلًا —
+        // فالعنوان الصريح لا يستهلك سطرًا من النص.
+        let derived = d
+            .title
+            .as_ref()
+            .map(|t| t.trim().is_empty())
+            .unwrap_or(true);
+        let mut lines = d
             .blocks
             .iter()
             .map(|b| b.text.trim())
-            .filter(|t| !t.is_empty())
-            .collect::<Vec<_>>()
-            .join(" ");
+            .filter(|t| !t.is_empty());
+        if derived {
+            lines.next();
+        }
+        let text = lines.collect::<Vec<_>>().join(" ");
         Self {
             id: d.id.clone(),
             title: d.display_title(),
@@ -203,6 +215,25 @@ mod tests {
         let d: Document = serde_json::from_str(json).unwrap();
         assert_eq!(d.schema_version, 1);
         assert_eq!(d.title, None);
+    }
+
+    #[test]
+    fn excerpt_does_not_repeat_a_derived_title() {
+        // العنوان مشتقّ من أول سطر، فالمقتطف يبدأ من الثاني
+        let s = DocumentSummary::from(&doc(None, &["في مديح البطء", "نعيش في عالم يُمجّد السرعة"]));
+        assert_eq!(s.title, "في مديح البطء");
+        assert_eq!(s.excerpt, "نعيش في عالم يُمجّد السرعة");
+
+        // عنوان صريح لا يستهلك سطرًا: النص كله مقتطف
+        let s = DocumentSummary::from(&doc(Some("عنواني"), &["أول سطر", "ثانٍ"]));
+        assert_eq!(s.excerpt, "أول سطر ثانٍ");
+    }
+
+    #[test]
+    fn single_line_document_has_title_and_no_excerpt() {
+        let s = DocumentSummary::from(&doc(None, &["سطر واحد فقط"]));
+        assert_eq!(s.title, "سطر واحد فقط");
+        assert_eq!(s.excerpt, "");
     }
 
     #[test]

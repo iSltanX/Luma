@@ -118,7 +118,13 @@ impl DocumentStore {
                 Err(_) => damaged.push(id),
             }
         }
-        out.sort_by_key(|d| std::cmp::Reverse(d.last_opened_at));
+        // **الترتيب بآخر تعديل لا بآخر فتح.**
+        //
+        // «النصوص الأخيرة» في `Luma.md` §٦ هي آخر ما كُتب، والوقت
+        // المعروض في الصف هو `updatedAt` نفسه. الترتيب بالفتح كان يقفز
+        // بالنصّ إلى رأس القائمة بمجرّد قراءته — فيبدو كأنه عُدّل ولم
+        // يُكتب فيه حرف.
+        out.sort_by_key(|d| std::cmp::Reverse(d.updated_at));
         Ok((out, damaged))
     }
 
@@ -126,9 +132,16 @@ impl DocumentStore {
     ///
     /// مشتقّ من المستندات نفسها لا من ملف حالة منفصل: ملف الحالة
     /// مصدر حقيقة ثانٍ يمكن أن يتناقض مع الواقع.
+    ///
+    /// **يقيس `lastOpenedAt` لا ترتيب `list`**: القائمة مرتّبة بآخر
+    /// تعديل لأنها للعرض، والاستئناف يسأل عن آخر ما فُتح — سؤالان
+    /// مختلفان، وخلطهما هو ما جعل الفتح يبدو تعديلًا.
     pub fn most_recent(&self) -> Result<Option<String>> {
         let (list, _) = self.list()?;
-        Ok(list.first().map(|d| d.id.clone()))
+        Ok(list
+            .into_iter()
+            .max_by_key(|d| d.last_opened_at)
+            .map(|d| d.id))
     }
 
     pub fn delete(&self, id: &str) -> Result<()> {
@@ -282,6 +295,37 @@ mod tests {
         s.save(&a).unwrap();
         s.save(&b).unwrap();
         assert_eq!(s.most_recent().unwrap(), Some("bb".into()));
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **فتح نصّ ليس تعديلًا له.**
+    ///
+    /// القائمة للعرض فتُرتَّب بآخر تعديل، والاستئناف يسأل عن آخر فتح.
+    /// خلطهما كان يقفز بالنصّ المقروء إلى رأس المكتبة بلا حرف واحد.
+    #[test]
+    fn opening_a_document_does_not_reorder_the_library() {
+        let s = store("order");
+        let mut older = doc("old", "قديم");
+        older.updated_at = 10;
+        older.last_opened_at = 10;
+        let mut newer = doc("new", "جديد");
+        newer.updated_at = 99;
+        newer.last_opened_at = 99;
+        s.save(&older).unwrap();
+        s.save(&newer).unwrap();
+
+        // يُفتح القديم الآن: يُختم وقت فتحه ولا يُمسّ وقت تعديله
+        older.last_opened_at = 1000;
+        s.save(&older).unwrap();
+
+        let (list, _) = s.list().unwrap();
+        assert_eq!(
+            list.iter().map(|d| d.id.as_str()).collect::<Vec<_>>(),
+            vec!["new", "old"],
+            "الترتيب يتبع آخر تعديل لا آخر فتح"
+        );
+        // والاستئناف مع ذلك يعود إلى آخر ما فُتح
+        assert_eq!(s.most_recent().unwrap(), Some("old".into()));
         let _ = fs::remove_dir_all(&s.root);
     }
 

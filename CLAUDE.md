@@ -16,7 +16,7 @@
 
 ## الحالة
 
-المراحل ١ إلى ٤ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ في `src-tauri/src/storage/`، وطبقة الرموز في `src/tokens/`.
+المراحل ١ إلى ٥ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ في `src-tauri/src/storage/`، وطبقة الرموز في `src/tokens/`، وإطار المحرر ولوحتاه (المكتبة والسجل) في `src/components/`.
 
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
 طبقة الرموز مولَّدة: `node src/tokens/generate.mjs` بعد أي تغيير في `source.json`.
@@ -41,17 +41,16 @@ LUMA_SELFTEST=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/
 ```
 
 النتيجة → `~/Library/Application Support/Luma/selftest-report.json`.
-`LUMA_DEMO=1` يفتح مستندًا طويلًا للتحقق البصري. `npm run test:e2e` لـPlaywright.
+`LUMA_DEMO=1` يفتح مستندًا طويلًا للتحقق البصري، و`LUMA_STAGE=library|history|preview|count` يفتح مشهدًا بعينه لالتقاط صورته. `npm run test:e2e` لـPlaywright.
 
 ## الخريطة
 
 ```
 src/editor/    نواة المحرر — لا تحفظ ولا تعرف المكتبة (README فيها)
-src/lib/       autosave.ts · session.ts · bidi.ts · fonts.css
-src/components/ SaveStatus.svelte
+src/lib/       autosave.ts · session.ts · bidi.ts · library.ts · surfaces.ts · fonts.css
 src/dev/       ⚠️ أدوات تطوير لا تُشحن
 src/tokens/    ⚠️ مولَّد: source.json → tokens.css + themes.ts
-src/components/ مكتبة المكونات + الأيقونات الـ٢٢
+src/components/ مكتبة المكونات + الأيقونات الـ٢٢ — و`EditorShell` إطار كل شاشة
 src-tauri/     النواة الأصلية — storage/ والنافذة والقائمة والأوامر
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة
 tests/         وحدات + حارس الحدود + e2e/ لـPlaywright
@@ -70,5 +69,7 @@ docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 6. **لا زر حفظ ولا اختصار حفظ يدوي** — الحفظ تلقائي دائم، وكل كتابة ذرّية.
 7. **لا يُستبدل ملف سليم بجزئي** — كل كتابة تمرّ بـ`write_atomic`.
 8. **كل لون رمز ثيم** — ولا `var(--…)` غير معرَّف: كلاهما يسقط صامتًا ويحرسه اختبار.
+9. **فتح لوحة لا يغيّر عرض الورقة** — وهذا وحده ما يحفظ موضع التمرير. ولا لوحة تحبس التركيز، ولكلٍّ مدخل وزر إغلاق و`Esc`.
+10. **لا رمز محايد في وقتٍ يُعرض** — «منذ ساعتين» لا «١١:٤٥ م». الصياغة في `src/lib/bidi.ts`.
 
 قبل أي عمل على العربية أو الاتجاه: [docs/arabic-battery.md](docs/arabic-battery.md).

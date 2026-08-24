@@ -18,7 +18,12 @@ import { baseKeymap } from "prosemirror-commands";
 import type { Block, BlockRole } from "./blocks";
 import { emptyDocument, wordCount } from "./blocks";
 import { schema, NODE_FOR_ROLE, ROLE_FOR_NODE } from "./schema";
-import { blocksToDoc, docToBlocks, blockIdPlugin } from "./convert";
+import {
+  blocksToDoc,
+  docToBlocks,
+  blockIdPlugin,
+  createBlockMapper,
+} from "./convert";
 import { textToSlice } from "./paste";
 
 const focusKey = new PluginKey<boolean>("lumaFocusMode");
@@ -30,6 +35,23 @@ const focusKey = new PluginKey<boolean>("lumaFocusMode");
  * دفقة جديدة. تجميعٌ بالحرف يجعل `Cmd+Z` بلا معنى — §٧ **ثابت**.
  */
 const UNDO_GROUP_DELAY_MS = 500;
+
+/**
+ * تنفّس حول المؤشر عند التمرير إليه، بالبكسل.
+ *
+ * أربعة أسطر من نص القراءة (١٩/٣٦) تقريبًا: تكفي ليبقى السطر السابق
+ * والتالي مرئيين، ولا تصل إلى تثبيت السطر في الوسط — ذاك وضع الآلة
+ * الكاتبة في المرحلة ٦.
+ */
+const SCROLL_MARGIN = 144;
+
+/**
+ * متى يبدأ التمرير: قبل أن يبلغ المؤشر الحافة، لا بعدها.
+ *
+ * سطران تقريبًا. الصفر (الافتراضي) يعني ألّا يتحرّك شيء حتى يخرج
+ * المؤشر من الشاشة فعلًا، فتأتي الحركة متأخّرة ودفعةً واحدة.
+ */
+const SCROLL_THRESHOLD = 96;
 
 export interface EditorCoreOptions {
   /** يُستدعى بعد كل تغيير فعلي في المحتوى. */
@@ -74,6 +96,16 @@ export class EditorCore {
   private opts: EditorCoreOptions;
   /** يمنع إطلاق `onChange` أثناء الاستبدال البرمجي للمحتوى. */
   private suppressChange = false;
+  /** قراءة فقط أثناء معاينة نسخة من السجل — §٩. */
+  private editable = true;
+  /**
+   * محوِّل يعيد استعمال الكتل غير المتغيّرة.
+   *
+   * مسار الكتابة يمرّ به مع كل ضغطة مفتاح، فبناء المستند كله في كل
+   * مرة يُحسّ تلعثمًا على النص الطويل. `getBlocks()` العامة تبقى على
+   * التحويل المباشر: قارئها الخارجي لا يفترض إعادة استعمال.
+   */
+  private toBlocks = createBlockMapper();
 
   constructor(options: EditorCoreOptions = {}) {
     this.opts = options;
@@ -92,6 +124,12 @@ export class EditorCore {
           "Mod-z": undo,
           "Mod-Shift-z": redo,
           "Mod-y": redo,
+          // مجموعة التنسيق المعتمدة كاملة بلوحة المفاتيح — `Luma.md` §٥
+          // و§١٣: «كل وظيفة أساسية متاحة بلوحة المفاتيح». المجموعة ثلاثة
+          // أدوار لا أكثر، فلا اختصار لـH3 ولا لغامق.
+          "Mod-Alt-0": () => this.applyRole("body"),
+          "Mod-Alt-1": () => this.applyRole("h1"),
+          "Mod-Alt-2": () => this.applyRole("h2"),
         }),
         keymap(baseKeymap),
         blockIdPlugin(),
@@ -101,6 +139,26 @@ export class EditorCore {
 
     this.view = new EditorView(host, {
       state,
+      editable: () => this.editable,
+      // **هامش تمرير حول المؤشر.**
+      //
+      // الافتراضي صفر: يُمرَّر السطر إلى داخل الشاشة بالكاد، فيلتصق
+      // المؤشر بحافة النافذة وتصير الكتابة على الحافة — وهذا أظهر ما
+      // يُحسّ «غير سلس» في الكتابة المتصلة. §٥: «التمرير يحافظ على موضع
+      // واضح للمؤشر». ليس هذا وضع الآلة الكاتبة (المرحلة ٦) الذي يثبّت
+      // السطر النشط في نطاق وسطي، بل حدٌّ أدنى من التنفّس حوله.
+      scrollThreshold: {
+        top: SCROLL_THRESHOLD,
+        bottom: SCROLL_THRESHOLD,
+        left: 0,
+        right: 0,
+      },
+      scrollMargin: {
+        top: SCROLL_MARGIN,
+        bottom: SCROLL_MARGIN,
+        left: 0,
+        right: 0,
+      },
       attributes: {
         dir: "rtl",
         class: "luma-editor",
@@ -125,7 +183,7 @@ export class EditorCore {
         view.updateState(next);
 
         if (tr.docChanged && !this.suppressChange) {
-          this.opts.onChange?.(docToBlocks(next.doc));
+          this.opts.onChange?.(this.toBlocks(next.doc));
         }
         if (tr.docChanged || tr.selectionSet) {
           this.opts.onSelectionChange?.();
@@ -207,6 +265,41 @@ export class EditorCore {
     );
   }
 
+  /**
+   * مستطيل التحديد الحالي في إحداثيات النافذة، أو `null` بلا تحديد.
+   *
+   * أساس موضع شريط التحديد: يظهر فوق النص المحدَّد ويختفي بزواله.
+   * يُقاس من نطاق DOM لا من المواضع المنطقية، لأن التحديد قد يمتدّ على
+   * أسطر — والمطلوب حدوده كما يراها القارئ.
+   */
+  selectionRect(): DOMRect | null {
+    const view = this.view;
+    if (!view || view.state.selection.empty) return null;
+    const sel = view.dom.ownerDocument.defaultView?.getSelection();
+    if (!sel || sel.rangeCount === 0 || sel.isCollapsed) return null;
+    const rect = sel.getRangeAt(0).getBoundingClientRect();
+    if (rect.width === 0 && rect.height === 0) return null;
+    return rect;
+  }
+
+  /**
+   * قراءة فقط — لمعاينة نسخة من السجل.
+   *
+   * «أثناء المعاينة يدخل المستند وضع قراءة فقط» — `Luma.md` §٩ **ثابت**.
+   * يُمنع التحرير ويبقى التحديد والنسخ عاملين: المعاينة قراءة لا تجميد.
+   */
+  setEditable(enabled: boolean): void {
+    const view = this.view;
+    if (!view) return;
+    this.editable = enabled;
+    // `editable` دالة تُستشار عند كل محاولة تحرير، فتكفي إعادة الرسم
+    view.setProps({ editable: () => this.editable });
+  }
+
+  get isEditable(): boolean {
+    return this.editable;
+  }
+
   // ── الطبقات ──────────────────────────────────────────────
 
   setFocusMode(enabled: boolean): void {
@@ -259,10 +352,15 @@ export class EditorCore {
 
   /** يحوّل الكتل المشمولة بالتحديد إلى الدور المطلوب. */
   setRole(role: BlockRole): void {
+    this.applyRole(role);
+  }
+
+  /** الشكل الأمري للتحويل — يعيد `true` إن غيّر شيئًا، كما تتوقّع الاختصارات. */
+  private applyRole(role: BlockRole): boolean {
     const view = this.view;
-    if (!view) return;
+    if (!view || !this.editable) return false;
     const type = schema.nodes[NODE_FOR_ROLE[role]];
-    if (!type) return;
+    if (!type) return false;
     const { from, to } = view.state.selection;
     const tr = view.state.tr;
     view.state.doc.nodesBetween(from, to, (node, pos) => {
@@ -272,7 +370,9 @@ export class EditorCore {
       }
       return true;
     });
-    if (tr.docChanged) view.dispatch(tr);
+    if (!tr.docChanged) return false;
+    view.dispatch(tr);
+    return true;
   }
 
   /**
@@ -282,7 +382,7 @@ export class EditorCore {
    */
   wrapInQuotes(): void {
     const view = this.view;
-    if (!view) return;
+    if (!view || !this.editable) return;
     const { from, to, empty } = view.state.selection;
     if (empty) return;
     const text = view.state.doc.textBetween(from, to, " ");

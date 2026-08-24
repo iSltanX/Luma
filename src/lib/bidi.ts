@@ -56,3 +56,59 @@ export function words(n: number): string {
   if (n <= 10) return `${arabicDigits(n)} كلمات`;
   return `${arabicDigits(n)} كلمة`;
 }
+
+/** صيغ العدد العربية: مفرد، مثنى، جمع قلّة (٣–١٠)، تمييز مفرد (١١+). */
+type Forms = readonly [one: string, two: string, few: string, many: string];
+
+/** يصوغ عددًا مع تمييزه بالصيغة الصحيحة. `٢ دقيقة` عربية مكسورة. */
+function counted(n: number, [one, two, few, many]: Forms): string {
+  if (n === 1) return one;
+  if (n === 2) return two;
+  if (n <= 10) return `${arabicDigits(n)} ${few}`;
+  return `${arabicDigits(n)} ${many}`;
+}
+
+const MINUTE = 60_000;
+const HOUR = 60 * MINUTE;
+const DAY = 24 * HOUR;
+
+/**
+ * زمن ماضٍ **بالكلمات لا بالرموز**.
+ *
+ * `Luma.md` §١٦ **ثابت**: «لا صيغ وقت برموز محايدة، لأنها تُرسم ملتبسة
+ * تحت الاتجاه الثنائي». ولذلك لا «١١:٤٥ م» هنا ولا في أي سطر واجهة،
+ * ولو ظهرت في التصميم — الوثيقة أعلى.
+ *
+ * `now` وسيط لا `Date.now()` داخليًا: يجعل الدالة قابلة للاختبار.
+ */
+export function sinceLabel(at: number, now: number = Date.now()): string {
+  const ago = Math.max(0, now - at);
+  if (ago < MINUTE) return "الآن";
+  if (ago < HOUR) {
+    return `منذ ${counted(Math.floor(ago / MINUTE), ["دقيقة", "دقيقتين", "دقائق", "دقيقة"])}`;
+  }
+  if (ago < DAY) {
+    return `منذ ${counted(Math.floor(ago / HOUR), ["ساعة", "ساعتين", "ساعات", "ساعة"])}`;
+  }
+  const days = Math.floor(ago / DAY);
+  if (days === 1) return "أمس";
+  if (days < 7) return `منذ ${counted(days, ["يوم", "يومين", "أيام", "يومًا"])}`;
+  if (days < 30) {
+    return `منذ ${counted(Math.floor(days / 7), ["أسبوع", "أسبوعين", "أسابيع", "أسبوعًا"])}`;
+  }
+  if (days < 365) {
+    return `منذ ${counted(Math.floor(days / 30), ["شهر", "شهرين", "أشهر", "شهرًا"])}`;
+  }
+  return `منذ ${counted(Math.floor(days / 365), ["سنة", "سنتين", "سنوات", "سنة"])}`;
+}
+
+/**
+ * فرق عدد الكلمات بين لقطتين، نصًّا.
+ *
+ * «+٤٠» ممنوعة: الإشارة رمز محايد يُرسم ملتبسًا في سطر عربي — §١٦.
+ */
+export function wordDelta(current: number, previous: number): string {
+  const d = current - previous;
+  if (d === 0) return "بلا تغيّر في عدد الكلمات";
+  return d > 0 ? `زادت ${words(d)}` : `نقصت ${words(-d)}`;
+}

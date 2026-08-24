@@ -105,8 +105,9 @@ for (const theme of THEMES) {
       const bw = parseFloat(cs.borderTopWidth);
       const bc = cs.borderTopColor;
       const bg = cs.backgroundColor;
+      // الخلفية على الإطار لا على المُمرِّر — المُمرِّر شفاف
       const canvas = getComputedStyle(
-        document.querySelector(".scroller")!,
+        document.querySelector(".shell")!,
       ).backgroundColor;
       return { bw, differs: bg !== canvas, bc, bg, canvas };
     });
@@ -152,33 +153,60 @@ test("لا سلف غير قابل للتحديد يحيط بالمحرر", async
   expect(bad, "سلف بـuser-select:none يفسد رسم التحديد في WebKit").toEqual([]);
 });
 
-for (const [w, h] of [[900, 700], [1280, 800], [1680, 1000]] as const) {
-  test(`عرض ${w} — الهوامش متوازنة والعمود داخل المدى`, async ({ page }) => {
+/**
+ * المقاسات الثابتة من التصميم — `IMPLEMENTATION.md` §٩:
+ * ورقة ٨٨٠ بحشوة جانبية ٤٠، وعمود نص ٨٠٠.
+ *
+ * العمود يقف عند ٨٠٠ مهما اتسعت النافذة: هو أقصى ما توثّقه §٩ لعمود
+ * النص العربي، وإطالة السطر بعده تضرّ القراءة الطويلة. والضبط ٥٢٠–٨٠٠
+ * تفضيلُ مستخدمٍ يصل في المرحلة ٦ — والافتراضي عند سقفه.
+ */
+function measures(page: Page) {
+  return page.evaluate(() => {
+    const sheet = document.querySelector(".sheet")!.getBoundingClientRect();
+    const sc = document.querySelector(".scroller")!.getBoundingClientRect();
+    const cs = getComputedStyle(document.querySelector(".sheet")!);
+    const pad = parseFloat(cs.paddingInlineStart);
+    return {
+      left: Math.round(sheet.left - sc.left),
+      right: Math.round(sc.right - sheet.right),
+      pad: Math.round(pad),
+      measure: Math.round(sheet.width - pad * 2),
+      sheetW: Math.round(sheet.width),
+    };
+  });
+}
+
+for (const [w, h] of [[1440, 900], [1680, 1000]] as const) {
+  test(`عرض ${w} — الورقة ٨٨٠ والعمود ٨٠٠`, async ({ page }) => {
     await page.setViewportSize({ width: w, height: h });
     await page.goto("/");
     await page.waitForSelector(EDITOR);
-    const m = await page.evaluate(() => {
-      const sheet = document.querySelector(".sheet")!.getBoundingClientRect();
-      const sc = document.querySelector(".scroller")!.getBoundingClientRect();
-      const cs = getComputedStyle(document.querySelector(".sheet")!);
-      const pad = parseFloat(cs.paddingInlineStart);
-      return {
-        left: Math.round(sheet.left - sc.left),
-        right: Math.round(sc.right - sheet.right),
-        measure: Math.round(sheet.width - pad * 2),
-        sheetW: Math.round(sheet.width),
-        winW: Math.round(sc.width),
-      };
-    });
-    // هوامش متوازنة
-    expect(Math.abs(m.left - m.right)).toBeLessThanOrEqual(2);
-    // عمود الكتابة داخل المدى الموثَّق ٥٢٠–٨٠٠
-    expect(m.measure).toBeGreaterThanOrEqual(500);
-    expect(m.measure).toBeLessThanOrEqual(800);
-    // يستفيد من العرض دون تجاوز حدّ القراءة: عند ١٢٨٠ تشغل الورقة
-    // أكثر من ٧٠٪. وفوق ذلك يقف العمود عند ٨٠٠ الموثَّقة عمدًا —
-    // إطالة السطر أكثر تضرّ قراءة النص العربي الطويل (§٩).
-    if (w === 1280) expect(m.sheetW / m.winW).toBeGreaterThan(0.7);
-    if (w >= 1680) expect(m.measure).toBe(800);
+    const m = await measures(page);
+
+    expect(Math.abs(m.left - m.right), "هوامش متوازنة").toBeLessThanOrEqual(2);
+    expect(m.sheetW).toBe(880);
+    expect(m.pad).toBe(40);
+    expect(m.measure).toBe(800);
   });
 }
+
+test("النافذة الضيّقة: يتقلّص العمود نحو ٥٢٠ قبل أن تتقلّص الورقة", async ({
+  page,
+}) => {
+  await page.goto("/");
+  await page.waitForSelector(EDITOR);
+
+  // عرض متوسط: الحشوة ما زالت ٤٠ والعمود هو الذي أعطى
+  await page.setViewportSize({ width: 700, height: 800 });
+  const mid = await measures(page);
+  expect(mid.pad, "الحشوة تصمد ما دام العمود فوق حدّه").toBe(40);
+  expect(mid.measure).toBeLessThan(800);
+  expect(mid.measure).toBeGreaterThanOrEqual(520);
+
+  // عرض ضيّق: العمود بلغ حدّه، فأعطت الحشوة لتُبقيه عنده
+  await page.setViewportSize({ width: 600, height: 800 });
+  const tight = await measures(page);
+  expect(tight.pad).toBeLessThan(40);
+  expect(tight.measure).toBe(520);
+});

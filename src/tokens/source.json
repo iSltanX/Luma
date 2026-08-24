@@ -334,12 +334,15 @@
   "size": {
     "titlebar": 48,
     "surfaces-bar": 52,
-    "sheet": 760,
-    "sheet-pad": 60,
-    "column": 640,
+    "sheet": 880,
+    "sheet-pad": 40,
+    "column": 800,
     "column-min": 520,
     "column-max": 800,
     "panel": 320,
+    "titlebar-slot": 220,
+    "comfort": 56,
+    "panel-mark": 3,
     "icon": 16,
     "hit": 32,
     "btn-lg": 44,
@@ -355,6 +358,6 @@
   },
   "derived": {
     "_": "قيم مركَّبة من الرموز أعلاه. تبقى في المصدر الوحيد ولا تُكتب في ملفات المستهلكين.",
-    "editor-measure": "clamp(var(--size-column-min), 64vw, var(--size-column-max))"
+    "editor-measure": "var(--size-column)"
   }
 }

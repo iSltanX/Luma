@@ -163,12 +163,15 @@
 
   --size-titlebar: 48px;
   --size-surfaces-bar: 52px;
-  --size-sheet: 760px;
-  --size-sheet-pad: 60px;
-  --size-column: 640px;
+  --size-sheet: 880px;
+  --size-sheet-pad: 40px;
+  --size-column: 800px;
   --size-column-min: 520px;
   --size-column-max: 800px;
   --size-panel: 320px;
+  --size-titlebar-slot: 220px;
+  --size-comfort: 56px;
+  --size-panel-mark: 3px;
   --size-icon: 16px;
   --size-hit: 32px;
   --size-btn-lg: 44px;
@@ -182,7 +185,7 @@
   --size-focus-ring: 2px;
   --size-focus-offset: 2px;
 
-  --editor-measure: clamp(var(--size-column-min), 64vw, var(--size-column-max));
+  --editor-measure: var(--size-column);
 }
 
 :root {

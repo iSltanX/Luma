@@ -20,11 +20,18 @@
   import Badge from "../components/Badge.svelte";
   import Alert from "../components/Alert.svelte";
   import Toast from "../components/Toast.svelte";
-  import PanelHeader from "../components/PanelHeader.svelte";
   import SettingsRow from "../components/SettingsRow.svelte";
   import NavRow from "../components/NavRow.svelte";
   import ThemeCard from "../components/ThemeCard.svelte";
   import SaveStatus from "../components/SaveStatus.svelte";
+  import SearchField from "../components/SearchField.svelte";
+  import DocumentRow from "../components/DocumentRow.svelte";
+  import RevisionRow from "../components/RevisionRow.svelte";
+  import SurfacesBar from "../components/SurfacesBar.svelte";
+  import SelectionToolbar from "../components/SelectionToolbar.svelte";
+  import ComfortButton from "../components/ComfortButton.svelte";
+  import EmptyState from "../components/EmptyState.svelte";
+  import { SURFACES } from "../lib/surfaces";
 
   let on = $state(true);
   let off = $state(false);
@@ -34,6 +41,18 @@
   let txt = $state("في الهدوء");
 
   const KINDS = ["primary", "secondary", "ghost", "destructive"] as const;
+
+  // زمن مرجعي ثابت: اللقطات المرجعية لا تتغيّر مع مرور الوقت
+  const NOW = 1_700_000_000_000;
+  const HOUR = 3_600_000;
+  const CARD = {
+    id: "a", title: "في مديح البطء",
+    excerpt: "نعيش في عالم يُمجّد السرعة، كل شيء يجب أن يكون فوريًا…",
+    wordCount: 247, updatedAt: NOW - HOUR, lastOpenedAt: NOW - HOUR,
+  };
+  let surface = $state<string | null>("library");
+  let query = $state("");
+  let filled = $state("قصيدة الشتاء");
 </script>
 
 <div class="gallery" data-gallery>
@@ -135,10 +154,56 @@
     </div>
   </section>
 
+  <!-- مكونات المرحلة ٥ مجمَّعة: لها لقطة مرجعية في الثيمات الخمسة.
+       الوعاء ضروري لأن `[data-gallery]` صندوق تمرير بارتفاع النافذة،
+       فلقطته لا تتجاوز أول شاشة منه. -->
+  <div data-surfaces>
+  <section><h3 class="t-ui-04">شريط الأسطح ومداخله — خمسة</h3>
+    <div class="row">
+      <div class="bars">
+        <SurfacesBar entries={SURFACES} active={surface}
+          ontoggle={(id) => (surface = surface === id ? null : id)} />
+      </div>
+    </div>
+  </section>
+
+  <section><h3 class="t-ui-04">شريط التحديد — حالتان</h3>
+    <div class="row">
+      <SelectionToolbar role="body" onrole={() => {}} onquote={() => {}} />
+      <SelectionToolbar role="h2" onrole={() => {}} onquote={() => {}} />
+    </div>
+    <div class="row comfort-cell"><ComfortButton /></div>
+  </section>
+
+  <section><h3 class="t-ui-04">صفوف المكتبة والسجل — أربع حالات لكل</h3>
+    <div class="row">
+      <div class="panel"><div class="panel-body">
+        <SearchField bind:value={query} />
+        <SearchField bind:value={filled} />
+        <DocumentRow doc={CARD} now={NOW} onopen={() => {}} />
+        <DocumentRow doc={CARD} now={NOW} current onopen={() => {}} />
+      </div></div>
+      <div class="panel"><div class="panel-body">
+        <RevisionRow label="الآن — النسخة الحالية" detail="آخر ما كُتب"
+          wordCount={247} selected onselect={() => {}} />
+        <RevisionRow at={NOW - HOUR} now={NOW} detail="زادت ١٧ كلمة"
+          wordCount={230} onselect={() => {}} />
+        <RevisionRow at={NOW - 26 * HOUR} now={NOW}
+          detail="قيد المعاينة — للقراءة فقط"
+          wordCount={180} selected onselect={() => {}} />
+      </div></div>
+      <div class="panel"><div class="panel-body">
+        <EmptyState icon="library" title="لا توجد نصوص بعد"
+          hint="ابدأ الكتابة وسيظهر النص هنا تلقائيًا." />
+      </div></div>
+    </div>
+  </section>
+
+  </div>
+
   <section><h3 class="t-ui-04">القوائم والأسطح</h3>
     <div class="row">
       <div class="panel">
-        <PanelHeader title="المكتبة" onclose={() => {}} />
         <div class="panel-body">
           <NavRow label="المظهر" icon="appearance" active />
           <NavRow label="الكتابة" icon="document" />
@@ -202,5 +267,10 @@
     border: 1px solid var(--border-subtle); border-radius: var(--radius-md);
     overflow: hidden;
   }
-  .panel-body { padding: var(--space-008); }
+  .panel-body { padding: var(--space-008); display: flex;
+    flex-direction: column; gap: var(--space-008); }
+  .bars { inline-size: 520px; background: var(--surface-canvas); }
+  /* الزر عائم في الإطار — يُعرض هنا داخل صندوق نسبي ليُرى */
+  .comfort-cell { position: relative; block-size: var(--space-096);
+    inline-size: var(--space-096); }
 </style>

@@ -115,6 +115,41 @@ export class EditorSession {
   }
 
   /**
+   * يفتح مستندًا آخر — **بعد حفظ الحالي أولًا**.
+   *
+   * «فتح نص سابق يستبدل المحتوى الحالي بعد حفظه تلقائيًا» — `Luma.md`
+   * §٦ **ثابت**. الحفظ أولًا لا بالتوازي: لو فشل، لا يُستبدل شيء
+   * ويبقى المستند الحالي كما هو في المحرر وفي الذاكرة.
+   */
+  async open(id: string): Promise<void> {
+    if (id === this.documentId) return;
+    await this.flush();
+
+    const doc = await this.bridge.load(id);
+    this.documentId = doc.id;
+    this.createdAt = doc.createdAt;
+    this.explicitTitle = doc.title;
+    this.buffer = doc.blocks;
+    this.editor.setBlocks(doc.blocks);
+    this.onTitleChange?.(this.displayTitle());
+  }
+
+  /**
+   * يتبنّى محتوى جاء من خارج المحرر — ناتج استعادة نسخة من السجل.
+   *
+   * النواة كتبته على القرص قبل أن يصل هنا (`restore_revision`)، ومع ذلك
+   * يمرّ بمسار الحفظ نفسه: لا يوجد محتوى في المحرر لا تعرفه الجلسة.
+   */
+  adopt(blocks: Block[]): void {
+    this.buffer = blocks;
+    this.editor.setBlocks(blocks);
+    this.onTitleChange?.(this.displayTitle());
+    if (this.documentId) {
+      this.autosave.push({ id: this.documentId, blocks });
+    }
+  }
+
+  /**
    * يُستدعى من `onChange` في المحرر.
    *
    * **المستند يُنشأ عند أول محتوى فعلي** لا عند فتح المساحة:
@@ -124,9 +159,10 @@ export class EditorSession {
   handleChange(blocks: Block[]): void {
     this.buffer = blocks;
 
-    const hasContent = blocks.some((b) => b.text.trim() !== "");
     if (!this.documentId) {
-      if (!hasContent) return; // مساحة فارغة لا تُنشئ مستندًا ولا تُحفظ
+      // المسح بحثًا عن محتوى يقع **قبل إنشاء المستند فقط**. بعده الجواب
+      // معروف، وتكراره مع كل ضغطة مفتاح مسحٌ كامل بلا فائدة.
+      if (!blocks.some((b) => b.text.trim() !== "")) return;
       this.documentId = newDocumentId();
       this.createdAt = Date.now();
     }

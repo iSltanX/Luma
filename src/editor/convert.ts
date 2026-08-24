@@ -4,8 +4,8 @@
  * `Block[]` هو المصدر. مستند المحرر تمثيل عامل عليه، لا نسخة موازية.
  */
 
-import type { Node as PMNode } from "prosemirror-model";
-import { Plugin, PluginKey } from "prosemirror-state";
+import type { Node as PMNode, Slice } from "prosemirror-model";
+import { Plugin, PluginKey, type Transaction } from "prosemirror-state";
 import type { Block, BlockRole } from "./blocks";
 import { createBlock, newBlockId } from "./blocks";
 import { schema, NODE_FOR_ROLE, ROLE_FOR_NODE } from "./schema";
@@ -22,17 +22,49 @@ export function blocksToDoc(blocks: readonly Block[]): PMNode {
   return doc.create(null, nodes);
 }
 
+function blockFromNode(node: PMNode): Block {
+  const role: BlockRole = ROLE_FOR_NODE[node.type.name] ?? "body";
+  const id =
+    typeof node.attrs["id"] === "string" && node.attrs["id"]
+      ? (node.attrs["id"] as string)
+      : newBlockId();
+  return { id, role, text: node.textContent, marks: [] };
+}
+
 export function docToBlocks(doc: PMNode): Block[] {
   const out: Block[] = [];
-  doc.forEach((node) => {
-    const role: BlockRole = ROLE_FOR_NODE[node.type.name] ?? "body";
-    const id =
-      typeof node.attrs["id"] === "string" && node.attrs["id"]
-        ? (node.attrs["id"] as string)
-        : newBlockId();
-    out.push({ id, role, text: node.textContent, marks: [] });
-  });
+  doc.forEach((node) => out.push(blockFromNode(node)));
   return out.length > 0 ? out : [createBlock("body", "")];
+}
+
+/**
+ * محوِّل يعيد استعمال الكتل التي لم تتغيّر عقدتها.
+ *
+ * عقد ProseMirror **غير قابلة للتغيير**، فالعقدة التي لم تُمسّ تحتفظ
+ * بهُويّتها المرجعية عبر المعاملات. وهذا يجعل المقارنة بـ`===` كافية
+ * وصحيحة: ما تغيّر وحده يُعاد بناؤه.
+ *
+ * بدونه تُبنى كل كتل المستند من جديد **مع كل ضغطة مفتاح** — و
+ * `textContent` يخصّص سلسلة لكل كتلة. على مستند طويل هذا يظهر تلعثمًا
+ * في الكتابة لا خطأً في النتيجة.
+ */
+export function createBlockMapper(): (doc: PMNode) => Block[] {
+  let lastNodes: PMNode[] = [];
+  let lastBlocks: Block[] = [];
+
+  return (doc: PMNode): Block[] => {
+    const nodes: PMNode[] = [];
+    const blocks: Block[] = [];
+    let i = 0;
+    doc.forEach((node) => {
+      nodes.push(node);
+      blocks.push(node === lastNodes[i] ? lastBlocks[i]! : blockFromNode(node));
+      i += 1;
+    });
+    lastNodes = nodes;
+    lastBlocks = blocks;
+    return blocks.length > 0 ? blocks : [createBlock("body", "")];
+  };
 }
 
 export const blockIdPluginKey = new PluginKey("lumaBlockIds");
@@ -45,11 +77,46 @@ export const blockIdPluginKey = new PluginKey("lumaBlockIds");
  * يعمل في `appendTransaction` فيقع الإصلاح داخل الخطوة نفسها،
  * ولا يُسجَّل في التراجع حتى لا يبتلع `Cmd+Z` إصلاحًا داخليًا.
  */
+/**
+ * هل يمكن لهذه المعاملات أن تُكرّر معرّف كتلة؟
+ *
+ * التكرار مصدره **نسخ سمات العقدة**: الشقّ بـ`Enter` واللصق. أما
+ * كتابة حرف فتستبدل نصًّا داخل عقدة واحدة، ولا تُنشئ عقدة ولا تنسخ
+ * سمة — فلا حاجة لمسح المستند كله بحثًا عن تكرار لا يمكن أن يقع.
+ *
+ * الفحص محافظ: أي شريحة تحمل محتوى غير سطري، أو أي تغيّر في عدد
+ * الكتل، يُعيد المسح الكامل.
+ */
+function mayDuplicateBlockIds(
+  trs: readonly Transaction[],
+  before: number,
+  after: number,
+): boolean {
+  if (before !== after) return true;
+  for (const tr of trs) {
+    for (const step of tr.steps) {
+      const slice = (step as { slice?: Slice }).slice;
+      if (!slice) return true; // خطوة لا نعرف أثرها — تُمسح احتياطًا
+      let block = false;
+      slice.content.forEach((n) => {
+        if (!n.isInline) block = true;
+      });
+      if (block) return true;
+    }
+  }
+  return false;
+}
+
 export function blockIdPlugin(): Plugin {
   return new Plugin({
     key: blockIdPluginKey,
-    appendTransaction(trs, _oldState, newState) {
+    appendTransaction(trs, oldState, newState) {
       if (!trs.some((tr) => tr.docChanged)) return null;
+      if (
+        !mayDuplicateBlockIds(trs, oldState.doc.childCount, newState.doc.childCount)
+      ) {
+        return null;
+      }
 
       const seen = new Set<string>();
       const fixes: Array<{ pos: number; id: string }> = [];

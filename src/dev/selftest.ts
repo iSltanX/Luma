@@ -62,6 +62,30 @@ export async function runSelfTest(
   const add = (id: string, name: string, passed: boolean, detail: string) =>
     checks.push({ id, name, passed, detail });
 
+  /**
+   * بصمة مكتبة المستخدم قبل الفحص.
+   *
+   * الفحص يكتب عبر مسار الإدخال الحقيقي، وكان ذلك المسار يمرّ بالحفظ
+   * التلقائي فيكتب فوق المستند المستأنف. أُصلح بفصل الجلسة، وهذه
+   * البصمة تحرس الإصلاح: أداةٌ تفحص لا تُتلف ما تفحصه.
+   */
+  type DocFingerprint = { id: string; updatedAt: number };
+  const fingerprint = async (): Promise<DocFingerprint[]> => {
+    if (!invoke) return [];
+    try {
+      const listing = await invoke<{ documents: DocFingerprint[] }>(
+        "list_documents",
+      );
+      return listing.documents
+        .filter((d) => !d.id.startsWith("selftest-"))
+        .map((d) => ({ id: d.id, updatedAt: d.updatedAt }))
+        .sort((a, b) => a.id.localeCompare(b.id));
+    } catch {
+      return [];
+    }
+  };
+  const libraryBefore = await fingerprint();
+
   // ── ١ · المؤشر يتقدّم يسارًا في النص العربي ────────────────
   // القياس الصحيح ليس بُعد المؤشر عن حافة العمود — السطر القصير
   // يُحاذى يمينًا فيقع طرفه الأيسر في وسط العمود. الفيصل أن التقدّم
@@ -593,6 +617,184 @@ export async function runSelfTest(
       );
     } catch (e) {
       add("restore-guard", "الاستعادة تحفظ الحالة الحالية", false, String(e));
+    }
+  }
+
+  // ── ٨ · الإطار واللوحات ────────────────────────────────────
+  // معيار اكتمال المرحلة ٥: «فتح أي لوحة لا يزيح الورقة ولا يفقد
+  // المؤشر ولا التحديد ولا موضع التمرير»، و«كل لوحة تعمل بالماوس
+  // وبلوحة المفاتيح معًا».
+  {
+    const entry = (id: string) =>
+      document.querySelector<HTMLButtonElement>(`[data-surface="${id}"] button`);
+    const panel = () => document.querySelector("[data-panel]");
+
+    // ٨أ · طرف أزرار النظام محجوز، وحالة الحفظ في الطرف المقابل
+    {
+      const side = document.documentElement.dataset["windowControls"];
+      const bar = document.querySelector(".titlebar")?.getBoundingClientRect();
+      const save = document.querySelector(".save")?.getBoundingClientRect();
+      if (side && bar && save) {
+        const fromLeft = Math.round(save.left - bar.left);
+        const fromRight = Math.round(bar.right - save.right);
+        const opposite = side === "left" ? fromRight < fromLeft : fromLeft < fromRight;
+        add(
+          "window-controls",
+          "حالة الحفظ في الطرف المقابل لأزرار النظام",
+          opposite,
+          `الأزرار ${side === "left" ? "يسارًا" : "يمينًا"} — ` +
+            `حالة الحفظ على بُعد ${fromLeft}px من اليسار و${fromRight}px من اليمين`,
+        );
+      } else {
+        add(
+          "window-controls",
+          "حالة الحفظ في الطرف المقابل لأزرار النظام",
+          false,
+          `تعذّر القياس — الجانب: ${side ?? "غير مضبوط"}`,
+        );
+      }
+    }
+
+    // ٨ب · فتح لوحة لا يمسّ الورقة ولا التمرير ولا المؤشر
+    editor.setBlocks(buildLongDocument(4000));
+    editor.focus();
+    editor.caretToEnd();
+    await paint();
+
+    const scroller = document.querySelector(".scroller");
+    if (scroller) scroller.scrollTop = 400;
+    await paint();
+
+    const sheetOf = () =>
+      document.querySelector(".sheet")?.getBoundingClientRect().width ?? 0;
+    const before = {
+      sheet: Math.round(sheetOf()),
+      content: scroller?.scrollHeight ?? 0,
+      scroll: scroller?.scrollTop ?? -1,
+      caret: editor.caretRect(),
+    };
+
+    entry("library")?.click();
+    await wait(120);
+    await paint();
+
+    const opened = {
+      sheet: Math.round(sheetOf()),
+      content: scroller?.scrollHeight ?? 0,
+      scroll: scroller?.scrollTop ?? -2,
+      caret: editor.caretRect(),
+    };
+    const panelBox = panel()?.getBoundingClientRect();
+
+    const sameSheet = before.sheet === opened.sheet;
+    const sameContent = before.content === opened.content;
+    const sameScroll = before.scroll > 0 && before.scroll === opened.scroll;
+    // المؤشر يتحرّك أفقيًا مع إعادة تمركز الورقة، ولا يتحرّك رأسيًا:
+    // موضعه في النص هو ما يجب أن يبقى، وقد بقي إن ثبت السطر.
+    const sameCaretLine =
+      !!before.caret &&
+      !!opened.caret &&
+      Math.abs(before.caret.top - opened.caret.top) < 1;
+
+    add(
+      "panel-open",
+      "فتح لوحة لا يمسّ الورقة ولا التمرير ولا سطر المؤشر",
+      !!panelBox &&
+        Math.round(panelBox.width) === 320 &&
+        sameSheet &&
+        sameContent &&
+        sameScroll &&
+        sameCaretLine,
+      `اللوحة ${panelBox ? Math.round(panelBox.width) : 0}px — ` +
+        `الورقة ${before.sheet}→${opened.sheet} — ` +
+        `ارتفاع المحتوى ${before.content}→${opened.content} — ` +
+        `التمرير ${before.scroll}→${opened.scroll} — ` +
+        `سطر المؤشر ${sameCaretLine ? "ثابت" : "تحرّك"}`,
+    );
+
+    // ٨ج · Esc يغلق، والتركيز يعود إلى النص
+    document.dispatchEvent(
+      new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
+    );
+    await wait(80);
+    await paint();
+    add(
+      "panel-escape",
+      "Esc يغلق اللوحة ويعيد التركيز إلى النص",
+      panel() === null && editor.hasFocus,
+      panel() === null
+        ? `أُغلقت، والتركيز ${editor.hasFocus ? "في النص" : "خارجه"}`
+        : "بقيت مفتوحة",
+    );
+
+    // ٨د · مدخل واحد لكل لوحة، ولوحة واحدة في كل وقت
+    entry("library")?.click();
+    await wait(120);
+    entry("history")?.click();
+    await wait(120);
+    await paint();
+    const openPanels = document.querySelectorAll("[data-panel]").length;
+    const which = panel()?.getAttribute("data-panel") ?? "لا شيء";
+    entry("history")?.click();
+    await wait(80);
+    add(
+      "single-panel",
+      "لوحة واحدة مفتوحة في كل وقت",
+      openPanels === 1 && which === "history",
+      `عدد اللوحات ${openPanels} — المفتوحة: ${which}`,
+    );
+
+    // ٨هـ · المعاينة قراءة فقط: لا حرف يدخل النص
+    editor.setBlocks([
+      { id: "p1", role: "body", text: "نص المعاينة", marks: [] },
+    ]);
+    editor.focus();
+    editor.caretToEnd();
+    await paint();
+    const beforeReadonly = JSON.stringify(editor.getBlocks());
+    editor.setEditable(false);
+    await paint();
+    type("محاولة كتابة");
+    await paint();
+    const afterReadonly = JSON.stringify(editor.getBlocks());
+    editor.setEditable(true);
+    add(
+      "preview-readonly",
+      "المعاينة قراءة فقط لا تقبل حرفًا",
+      beforeReadonly === afterReadonly,
+      beforeReadonly === afterReadonly ? "النص لم يتغيّر" : "تسرّبت كتابة",
+    );
+  }
+
+  // ── ٨ز · الفحص لا يمسّ مستندات المستخدم ────────────────────
+  if (invoke) {
+    const after = await fingerprint();
+    const same = JSON.stringify(libraryBefore) === JSON.stringify(after);
+    add(
+      "selftest-isolation",
+      "الفحص لا يكتب فوق مستندات المستخدم",
+      same,
+      same
+        ? `${libraryBefore.length} مستندًا كما هي`
+        : `تغيّرت: ${JSON.stringify(libraryBefore)} ← ${JSON.stringify(after)}`,
+    );
+  }
+
+  // ── ٩ · تنظيف ما خلّفه الفحص ───────────────────────────────
+  // الفحص يكتب مستندات حقيقية ليختبر المسار الحقيقي، فيجب ألّا
+  // يتركها: مكتبة المستخدم ليست مكان ضجيج أداة، والاستئناف كان يفتح
+  // آخر مستند فحصٍ بدل نصّه.
+  if (invoke) {
+    try {
+      const removed = await invoke<number>("cleanup_selftest");
+      add(
+        "selftest-cleanup",
+        "الفحص لا يترك أثرًا في مكتبة المستخدم",
+        true,
+        `أُزيل ${removed} مستند فحص`,
+      );
+    } catch (e) {
+      add("selftest-cleanup", "الفحص لا يترك أثرًا", false, String(e));
     }
   }
 
