@@ -1,0 +1,249 @@
+//! الأوامر بين النواة والواجهة.
+//!
+//! الواجهة تقرر **متى** يُحفظ (التجميع والسقف)، والنواة تقرر **كيف**
+//! (الذرّية والتحقق والفشل). لا تعرف إحداهما تفاصيل الأخرى.
+
+use std::path::PathBuf;
+
+use serde::{Deserialize, Serialize};
+use tauri::State;
+
+use crate::storage::document::{DocumentStore, StoreError};
+use crate::storage::model::{
+    Block, Document, DocumentSummary, Revision, RevisionSource, RevisionSummary,
+};
+use crate::storage::prefs::PreferencesStore;
+use crate::storage::revision::{now_ms, RevisionStore};
+
+pub struct Storage {
+    pub root: PathBuf,
+}
+
+impl Storage {
+    pub fn docs(&self) -> DocumentStore {
+        DocumentStore::new(self.root.clone())
+    }
+    pub fn prefs(&self) -> PreferencesStore {
+        PreferencesStore::new(self.root.clone())
+    }
+    pub fn revisions(&self, doc_id: &str) -> RevisionStore {
+        RevisionStore::new(self.docs().revisions_dir(doc_id))
+    }
+}
+
+/// حقن فشل للاختبار — `LUMA_FAIL_WRITES=1`.
+///
+/// موجود ليُختبر مسار الفشل نفسه: أن يبقى البُفر، وألّا يُستبدل ملف
+/// سليم، وأن تظهر «تعذّر الحفظ». اختبار الحالة المثالية وحدها لا يكفي
+/// — §١٣.
+fn writes_are_forced_to_fail() -> bool {
+    std::env::var("LUMA_FAIL_WRITES").is_ok_and(|v| v == "1")
+}
+
+fn to_message(e: StoreError) -> String {
+    e.to_string()
+}
+
+// ── المستندات ────────────────────────────────────────────────
+
+#[derive(Debug, Deserialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SavePayload {
+    pub id: String,
+    pub title: Option<String>,
+    pub blocks: Vec<Block>,
+    /// أول حفظ لهذا المستند — تُضبط `createdAt` عنده فقط.
+    #[serde(default)]
+    pub created_at: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct SaveResult {
+    pub id: String,
+    pub updated_at: i64,
+    /// أُنشئت لقطة مع هذا الحفظ.
+    pub snapshot_created: bool,
+}
+
+#[tauri::command]
+pub fn save_document(
+    storage: State<'_, Storage>,
+    payload: SavePayload,
+) -> Result<SaveResult, String> {
+    if writes_are_forced_to_fail() {
+        return Err("تعذّر الحفظ: فشل مُحقَن للاختبار".into());
+    }
+
+    let docs = storage.docs();
+    let now = now_ms();
+
+    // مستند بلا محتوى لا يُكتب أصلًا: «لا ضجيج في المكتبة من مستندات
+    // فارغة» — `Luma.md` §٢٠ مسألة ٣.
+    let candidate = Document {
+        schema_version: crate::storage::model::SCHEMA_VERSION,
+        id: payload.id.clone(),
+        title: payload.title.clone(),
+        blocks: payload.blocks.clone(),
+        created_at: payload.created_at.unwrap_or(now),
+        updated_at: now,
+        last_opened_at: now,
+    };
+    if candidate.is_empty() && !docs.exists(&payload.id) {
+        return Ok(SaveResult {
+            id: payload.id,
+            updated_at: now,
+            snapshot_created: false,
+        });
+    }
+
+    // يُحافظ على `createdAt` الأصلي إن كان المستند موجودًا
+    let mut doc = candidate;
+    if let Ok(existing) = docs.load(&payload.id) {
+        doc.created_at = existing.created_at;
+    }
+
+    docs.save(&doc).map_err(to_message)?;
+
+    // اللقطة بعد نجاح الحفظ لا قبله: لا لقطة لحالة لم تُحفظ.
+    let revs = storage.revisions(&payload.id);
+    let snapshot_created = match revs.should_snapshot(&doc) {
+        Ok(true) => revs.create(&doc, RevisionSource::Automatic).is_ok(),
+        _ => false,
+    };
+
+    Ok(SaveResult {
+        id: doc.id,
+        updated_at: doc.updated_at,
+        snapshot_created,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LoadedDocument {
+    pub id: String,
+    pub title: Option<String>,
+    pub display_title: String,
+    pub blocks: Vec<Block>,
+    pub created_at: i64,
+    pub updated_at: i64,
+}
+
+#[tauri::command]
+pub fn load_document(storage: State<'_, Storage>, id: String) -> Result<LoadedDocument, String> {
+    let docs = storage.docs();
+    let mut doc = docs.load(&id).map_err(to_message)?;
+    doc.last_opened_at = now_ms();
+    // فشل ختم وقت الفتح لا يمنع فتح المستند
+    let _ = docs.save(&doc);
+    Ok(LoadedDocument {
+        display_title: doc.display_title(),
+        id: doc.id,
+        title: doc.title,
+        blocks: doc.blocks,
+        created_at: doc.created_at,
+        updated_at: doc.updated_at,
+    })
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct LibraryListing {
+    pub documents: Vec<DocumentSummary>,
+    /// مستندات تعذّرت قراءتها — تُعرض ولا تُخفى ولا تُحذف.
+    pub damaged: Vec<String>,
+}
+
+#[tauri::command]
+pub fn list_documents(storage: State<'_, Storage>) -> Result<LibraryListing, String> {
+    let (documents, damaged) = storage.docs().list().map_err(to_message)?;
+    Ok(LibraryListing { documents, damaged })
+}
+
+/// آخر مستند فُتح — أساس الاستئناف. `Luma.md` §٢٠ مسألة ١.
+#[tauri::command]
+pub fn most_recent_document(storage: State<'_, Storage>) -> Result<Option<String>, String> {
+    storage.docs().most_recent().map_err(to_message)
+}
+
+// ── السجل الزمني ─────────────────────────────────────────────
+
+#[tauri::command]
+pub fn list_revisions(
+    storage: State<'_, Storage>,
+    document_id: String,
+) -> Result<Vec<RevisionSummary>, String> {
+    storage.revisions(&document_id).list().map_err(to_message)
+}
+
+#[tauri::command]
+pub fn load_revision(
+    storage: State<'_, Storage>,
+    document_id: String,
+    revision_id: String,
+) -> Result<Revision, String> {
+    storage
+        .revisions(&document_id)
+        .load(&revision_id)
+        .map_err(to_message)
+}
+
+#[derive(Debug, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct RestoreResult {
+    pub blocks: Vec<Block>,
+    /// لقطة الحالة التي كانت قائمة قبل الاستعادة.
+    pub guard_revision_id: String,
+}
+
+/// يستعيد نسخة **بعد حفظ الحالة الحالية أولًا**.
+///
+/// «الاستعادة لا تمحو الحالة الحالية: تُحفظ ضمن السجل قبل تطبيق
+/// النسخة المستعادة» — `Luma.md` §٩ **ثابت**، و§١٧ مبدأ ٥.
+#[tauri::command]
+pub fn restore_revision(
+    storage: State<'_, Storage>,
+    document_id: String,
+    revision_id: String,
+) -> Result<RestoreResult, String> {
+    let docs = storage.docs();
+    let revs = storage.revisions(&document_id);
+
+    // تُقرأ النسخة المطلوبة أولًا: إن كانت تالفة لا نلمس شيئًا.
+    let target = revs.load(&revision_id).map_err(to_message)?;
+
+    let mut doc = docs.load(&document_id).map_err(to_message)?;
+
+    // شبكة الأمان قبل أي تعديل — لو فشلت تُلغى الاستعادة كلها.
+    let guard = revs
+        .create(&doc, RevisionSource::BeforeRestore)
+        .map_err(to_message)?;
+
+    doc.blocks = target.blocks.clone();
+    doc.updated_at = now_ms();
+    docs.save(&doc).map_err(to_message)?;
+
+    Ok(RestoreResult {
+        blocks: target.blocks,
+        guard_revision_id: guard.id,
+    })
+}
+
+// ── التفضيلات ────────────────────────────────────────────────
+
+#[tauri::command]
+pub fn load_preferences(storage: State<'_, Storage>) -> serde_json::Value {
+    storage.prefs().load()
+}
+
+#[tauri::command]
+pub fn save_preferences(
+    storage: State<'_, Storage>,
+    value: serde_json::Value,
+) -> Result<(), String> {
+    if writes_are_forced_to_fail() {
+        return Err("تعذّر حفظ التفضيلات: فشل مُحقَن للاختبار".into());
+    }
+    storage.prefs().save(&value).map_err(to_message)
+}

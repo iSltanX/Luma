@@ -4,10 +4,13 @@
 //! تهيئة النافذة، والقائمة الأصلية، وتثبيت مسار التخزين.
 //! التخزين والحفظ واللقطات تدخل في المرحلة ٣.
 
+pub mod commands;
+pub mod storage;
+
 use std::path::PathBuf;
 
 use tauri::menu::{AboutMetadata, MenuBuilder, MenuItem, PredefinedMenuItem, SubmenuBuilder};
-use tauri::{Emitter, Runtime};
+use tauri::{Emitter, Manager, Runtime, WindowEvent};
 
 /// مسار بيانات Luma.
 ///
@@ -113,6 +116,9 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
         .build()
 }
 
+/// يُمنع الإغلاق مرة واحدة فقط: لو فشل الحفظ لا يعلق المستخدم داخل نافذة.
+static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
     tauri::Builder::default()
@@ -120,7 +126,16 @@ pub fn run() {
             data_dir,
             demo_mode,
             selftest_mode,
-            write_report
+            write_report,
+            commands::save_document,
+            commands::load_document,
+            commands::list_documents,
+            commands::most_recent_document,
+            commands::list_revisions,
+            commands::load_revision,
+            commands::restore_revision,
+            commands::load_preferences,
+            commands::save_preferences
         ])
         .on_menu_event(|app, event| {
             // القص والنسخ واللصق والتحديد تبقى للنظام؛ هذه وحدها تُبثّ.
@@ -133,12 +148,39 @@ pub fn run() {
             let menu = build_menu(app.handle())?;
             app.set_menu(menu)?;
 
-            // يُنشأ مجلد البيانات عند الإقلاع حتى تكون المرحلة ٣ على أرض ثابتة.
-            if let Some(dir) = luma_data_dir() {
-                let _ = std::fs::create_dir_all(&dir);
-            }
+            let root =
+                luma_data_dir().ok_or_else(|| std::io::Error::other("تعذّر تحديد مجلد البيانات"))?;
+            std::fs::create_dir_all(&root)?;
+            app.manage(commands::Storage { root });
 
             Ok(())
+        })
+        .on_window_event(|window, event| {
+            // الإغلاق يُؤجَّل حتى تُكتب آخر دفقة.
+            //
+            // «عند إخفاء النافذة أو الخروج أو تبديل المستند: كتابة
+            // فورية» — §٥ **ثابت**. الواجهة تُخطَر لتُفرغ ما لديها،
+            // ثم تطلب الإغلاق ثانيةً. النافذة تُمنع مرة واحدة فقط
+            // حتى لا يعلق المستخدم إن فشل الحفظ.
+            match event {
+                WindowEvent::CloseRequested { api, .. } => {
+                    if !window
+                        .state::<commands::Storage>()
+                        .root
+                        .as_os_str()
+                        .is_empty()
+                        && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst)
+                    {
+                        api.prevent_close();
+                        let _ = window.emit("luma://flush-and-close", ());
+                    }
+                }
+                WindowEvent::Focused(false) => {
+                    // فقد التركيز محفّز كتابة فورية
+                    let _ = window.emit("luma://flush", ());
+                }
+                _ => {}
+            }
         })
         .run(tauri::generate_context!())
         .expect("تعذّر تشغيل Luma");

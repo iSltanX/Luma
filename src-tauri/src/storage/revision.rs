@@ -1,0 +1,266 @@
+//! `RevisionStore` — ينشئ اللقطات ويقرؤها ويطبّق الاستعادة.
+//! **لا يحذف الحالة الحالية** — §٢ و§٦ **ثابت**.
+
+use std::fs;
+use std::path::PathBuf;
+
+use super::atomic::{read_optional, write_atomic};
+use super::document::{Result, StoreError};
+use super::model::{Document, Revision, RevisionSource, RevisionSummary, SCHEMA_VERSION};
+
+/// حدود الاحتفاظ — تُبرَّر بالقياس في ADR ٠٠٠٦.
+const MAX_REVISIONS: usize = 100;
+const MAX_TOTAL_BYTES: u64 = 20 * 1024 * 1024;
+
+/// أقل تغيّر يستحق لقطة تلقائية، بالحروف.
+///
+/// دونه تمتلئ الذاكرة الزمنية بلقطات لا تُميّز بعضها من بعض،
+/// فتصير الاستعادة أصعب لا أسهل.
+const MIN_CHANGE_CHARS: usize = 80;
+
+pub struct RevisionStore {
+    dir: PathBuf,
+}
+
+impl RevisionStore {
+    pub fn new(dir: PathBuf) -> Self {
+        Self { dir }
+    }
+
+    fn path_for(&self, rev_id: &str) -> PathBuf {
+        self.dir.join(format!("{rev_id}.json"))
+    }
+
+    /// هل يستحق هذا التغيّر لقطة تلقائية؟
+    ///
+    /// يُقارن بآخر لقطة: التقارب الزمني وحده لا يكفي، والتغيّر الطفيف
+    /// لا يستحق مرحلة في السجل.
+    pub fn should_snapshot(&self, doc: &Document) -> Result<bool> {
+        if doc.is_empty() {
+            return Ok(false);
+        }
+        let latest = self.latest()?;
+        let Some(prev) = latest else {
+            // أول محتوى فعلي — أحد محفّزات §٦
+            return Ok(true);
+        };
+        let before: usize = prev.blocks.iter().map(|b| b.text.chars().count()).sum();
+        let after: usize = doc.blocks.iter().map(|b| b.text.chars().count()).sum();
+        Ok(before.abs_diff(after) >= MIN_CHANGE_CHARS)
+    }
+
+    pub fn create(&self, doc: &Document, source: RevisionSource) -> Result<RevisionSummary> {
+        let created_at = now_ms();
+        // المعرّف من الطابع الزمني: يجعل الترتيب المعجمي ترتيبًا زمنيًا
+        let id = format!("{created_at:013}");
+        let rev = Revision {
+            schema_version: SCHEMA_VERSION,
+            id: id.clone(),
+            document_id: doc.id.clone(),
+            created_at,
+            source,
+            word_count: doc.word_count(),
+            blocks: doc.blocks.clone(),
+        };
+        let bytes = serde_json::to_vec(&rev)
+            .map_err(|e| StoreError::Io(format!("تعذّر تسلسل اللقطة: {e}")))?;
+        write_atomic(&self.path_for(&id), &bytes)?;
+        self.prune()?;
+        Ok(RevisionSummary {
+            id,
+            created_at,
+            source,
+            word_count: rev.word_count,
+        })
+    }
+
+    /// اللقطات من الأحدث إلى الأقدم. التالفة تُتخطّى.
+    pub fn list(&self) -> Result<Vec<RevisionSummary>> {
+        if !self.dir.exists() {
+            return Ok(Vec::new());
+        }
+        let mut out = Vec::new();
+        for entry in fs::read_dir(&self.dir)? {
+            let Ok(entry) = entry else { continue };
+            let path = entry.path();
+            if path.extension().and_then(|e| e.to_str()) != Some("json") {
+                continue;
+            }
+            let Ok(Some(bytes)) = read_optional(&path) else {
+                continue;
+            };
+            // لقطة تالفة لا تُسقط القائمة — §٦
+            if let Ok(r) = serde_json::from_slice::<Revision>(&bytes) {
+                out.push(RevisionSummary {
+                    id: r.id,
+                    created_at: r.created_at,
+                    source: r.source,
+                    word_count: r.word_count,
+                });
+            }
+        }
+        out.sort_by_key(|r| std::cmp::Reverse(r.created_at));
+        Ok(out)
+    }
+
+    pub fn load(&self, rev_id: &str) -> Result<Revision> {
+        if !rev_id.chars().all(|c| c.is_ascii_digit()) {
+            return Err(StoreError::NotFound);
+        }
+        let path = self.path_for(rev_id);
+        let Some(bytes) = read_optional(&path)? else {
+            return Err(StoreError::NotFound);
+        };
+        // تعذُّر قراءة لقطة يُظهر خطأ محصورًا فيها ولا يمسّ المستند — §٦
+        serde_json::from_slice(&bytes).map_err(|e| StoreError::Corrupt {
+            path: path.display().to_string(),
+            detail: e.to_string(),
+        })
+    }
+
+    fn latest(&self) -> Result<Option<Revision>> {
+        let list = self.list()?;
+        match list.first() {
+            Some(s) => Ok(Some(self.load(&s.id)?)),
+            None => Ok(None),
+        }
+    }
+
+    /// يقصّ الأقدم عند تجاوز حدّ العدد أو الحجم.
+    ///
+    /// **لا يُقصّ ما مصدره `BeforeRestore`:** تلك شبكة الأمان التي
+    /// تجعل الاستعادة قابلة للتدارك.
+    fn prune(&self) -> Result<()> {
+        let list = self.list()?;
+        let mut total: u64 = 0;
+        let mut sizes = Vec::with_capacity(list.len());
+        for s in &list {
+            let size = fs::metadata(self.path_for(&s.id))
+                .map(|m| m.len())
+                .unwrap_or(0);
+            total += size;
+            sizes.push(size);
+        }
+
+        let mut kept = 0usize;
+        for (i, s) in list.iter().enumerate() {
+            let over_count = kept >= MAX_REVISIONS;
+            let over_size = total > MAX_TOTAL_BYTES;
+            if (over_count || over_size) && s.source != RevisionSource::BeforeRestore {
+                let _ = fs::remove_file(self.path_for(&s.id));
+                total = total.saturating_sub(sizes[i]);
+            } else {
+                kept += 1;
+            }
+        }
+        Ok(())
+    }
+}
+
+pub fn now_ms() -> i64 {
+    std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map(|d| d.as_millis() as i64)
+        .unwrap_or(0)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::storage::model::Block;
+
+    fn store(name: &str) -> RevisionStore {
+        let d = std::env::temp_dir().join(format!("luma-rev-{name}-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&d);
+        RevisionStore::new(d)
+    }
+
+    fn doc(text: &str) -> Document {
+        Document {
+            schema_version: SCHEMA_VERSION,
+            id: "d1".into(),
+            title: None,
+            blocks: vec![Block {
+                id: "b1".into(),
+                role: "body".into(),
+                text: text.into(),
+            }],
+            created_at: 0,
+            updated_at: 0,
+            last_opened_at: 0,
+        }
+    }
+
+    #[test]
+    fn first_real_content_triggers_a_snapshot() {
+        let s = store("first");
+        assert!(s.should_snapshot(&doc("أول محتوى")).unwrap());
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn empty_document_never_snapshots() {
+        let s = store("empty");
+        assert!(!s.should_snapshot(&doc("   ")).unwrap());
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn small_edits_do_not_snapshot_but_large_ones_do() {
+        let s = store("threshold");
+        s.create(&doc(&"ا".repeat(200)), RevisionSource::Automatic)
+            .unwrap();
+        assert!(!s.should_snapshot(&doc(&"ا".repeat(210))).unwrap());
+        assert!(s.should_snapshot(&doc(&"ا".repeat(400))).unwrap());
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn snapshots_round_trip_and_sort_newest_first() {
+        let s = store("sort");
+        s.create(&doc("الأولى"), RevisionSource::Automatic).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        s.create(&doc("الثانية"), RevisionSource::Automatic)
+            .unwrap();
+
+        let list = s.list().unwrap();
+        assert_eq!(list.len(), 2);
+        assert!(list[0].created_at >= list[1].created_at);
+        assert_eq!(s.load(&list[0].id).unwrap().blocks[0].text, "الثانية");
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn a_corrupt_snapshot_does_not_break_the_list() {
+        let s = store("corrupt");
+        s.create(&doc("سليمة"), RevisionSource::Automatic).unwrap();
+        std::thread::sleep(std::time::Duration::from_millis(3));
+        let bad = s.create(&doc("ستتلف"), RevisionSource::Automatic).unwrap();
+        fs::write(s.path_for(&bad.id), "تالف".as_bytes()).unwrap();
+
+        let list = s.list().unwrap();
+        assert_eq!(list.len(), 1, "اللقطة التالفة أسقطت القائمة");
+        assert!(matches!(s.load(&bad.id), Err(StoreError::Corrupt { .. })));
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn pruning_never_removes_the_before_restore_safety_net() {
+        let s = store("prune");
+        let guard = s
+            .create(&doc("قبل الاستعادة"), RevisionSource::BeforeRestore)
+            .unwrap();
+        for i in 0..(MAX_REVISIONS + 20) {
+            std::thread::sleep(std::time::Duration::from_millis(1));
+            s.create(&doc(&format!("لقطة {i}")), RevisionSource::Automatic)
+                .unwrap();
+        }
+        let list = s.list().unwrap();
+        assert!(list.len() <= MAX_REVISIONS + 1);
+        assert!(
+            list.iter().any(|r| r.id == guard.id),
+            "قُصّت لقطة ما قبل الاستعادة — شبكة الأمان"
+        );
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+}

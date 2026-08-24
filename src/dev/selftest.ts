@@ -17,8 +17,28 @@ export interface Check {
   detail: string;
 }
 
+/**
+ * ينتظر الرسم التالي — **مع مهلة احتياطية**.
+ *
+ * macOS يعلّق `requestAnimationFrame` للنوافذ المحجوبة، فانتظاره
+ * وحده يجعل الفحص يتوقف إلى الأبد إن لم تكن النافذة في المقدمة —
+ * بلا خطأ ولا تقرير. المهلة تضمن أن يمضي الفحص ويُبلّغ دائمًا.
+ *
+ * القياسات تبقى ذات معنى فقط والنافذة في المقدمة، ولذلك يُفعّلها
+ * سكربت التشغيل قبل البدء.
+ */
 const paint = (): Promise<void> =>
-  new Promise((r) => requestAnimationFrame(() => r()));
+  new Promise((r) => {
+    let done = false;
+    const finish = () => {
+      if (!done) {
+        done = true;
+        r();
+      }
+    };
+    requestAnimationFrame(finish);
+    setTimeout(finish, 50);
+  });
 
 const wait = (ms: number): Promise<void> =>
   new Promise((r) => setTimeout(r, ms));
@@ -29,9 +49,12 @@ function type(text: string): void {
 
 const round = (n: number) => Math.round(n * 1000) / 1000;
 
+type Invoke = <T>(cmd: string, args?: Record<string, unknown>) => Promise<T>;
+
 export async function runSelfTest(
   editor: EditorCore,
   host: HTMLElement,
+  invoke?: Invoke,
 ): Promise<Check[]> {
   const checks: Check[] = [];
   const add = (id: string, name: string, passed: boolean, detail: string) =>
@@ -251,6 +274,117 @@ export async function runSelfTest(
     p95 < 16,
     `${wordsTotal} كلمة — بناء ${mountMs}ms، حرف p50 ${p50}ms / p95 ${p95}ms`,
   );
+
+  // ── ٧ · دورة الحفظ الكاملة عبر النواة ──────────────────────
+  if (invoke) {
+    const id = `selftest-${Date.now().toString(36)}`;
+    const blocks = [
+      { id: "s1", role: "h1" as const, text: "في الهدوء", marks: [] },
+      {
+        id: "s2",
+        role: "body" as const,
+        text: "بِسْمِ اللَّهِ — كتبت hello «اقتباس» ١٢٣",
+        marks: [],
+      },
+    ];
+
+    try {
+      await invoke("save_document", {
+        payload: { id, title: null, blocks, createdAt: null },
+      });
+      const loaded = await invoke<{ blocks: typeof blocks; displayTitle: string }>(
+        "load_document",
+        { id },
+      );
+      const same =
+        JSON.stringify(loaded.blocks.map((b) => [b.role, b.text])) ===
+        JSON.stringify(blocks.map((b) => [b.role, b.text]));
+      add(
+        "persist-roundtrip",
+        "الحفظ والقراءة يحفظان النص العربي كما هو",
+        same && loaded.displayTitle === "في الهدوء",
+        `العنوان المشتقّ: «${loaded.displayTitle}»`,
+      );
+    } catch (e) {
+      add("persist-roundtrip", "الحفظ والقراءة", false, String(e));
+    }
+
+    // مساحة فارغة لا تُنشئ مستندًا — Luma.md §٢٠ مسألة ٣
+    try {
+      const emptyId = `selftest-empty-${Date.now().toString(36)}`;
+      await invoke("save_document", {
+        payload: {
+          id: emptyId,
+          title: null,
+          blocks: [{ id: "e1", role: "body", text: "   ", marks: [] }],
+          createdAt: null,
+        },
+      });
+      const listing = await invoke<{ documents: Array<{ id: string }> }>(
+        "list_documents",
+      );
+      const leaked = listing.documents.some((d) => d.id === emptyId);
+      add(
+        "empty-not-persisted",
+        "مساحة فارغة لا تُحفظ ولا تظهر في المكتبة",
+        !leaked,
+        leaked ? "ظهر مستند فارغ" : "لا ضجيج في المكتبة",
+      );
+    } catch (e) {
+      add("empty-not-persisted", "مساحة فارغة لا تُحفظ", false, String(e));
+    }
+
+    // الاستعادة تحفظ الحالة الحالية أولًا — §١٧ مبدأ ٥
+    try {
+      const rid = `selftest-rev-${Date.now().toString(36)}`;
+      await invoke("save_document", {
+        payload: {
+          id: rid,
+          title: null,
+          blocks: [{ id: "r1", role: "body", text: "النسخة الأولى" }],
+          createdAt: null,
+        },
+      });
+      const revs1 = await invoke<Array<{ id: string }>>("list_revisions", {
+        documentId: rid,
+      });
+      await invoke("save_document", {
+        payload: {
+          id: rid,
+          title: null,
+          blocks: [
+            {
+              id: "r1",
+              role: "body",
+              text: "نص ثانٍ مختلف تمامًا " + "ا".repeat(120),
+            },
+          ],
+          createdAt: null,
+        },
+      });
+
+      const target = revs1[0];
+      if (!target) throw new Error("لا لقطة أولى");
+      const restored = await invoke<{
+        blocks: Array<{ text: string }>;
+        guardRevisionId: string;
+      }>("restore_revision", { documentId: rid, revisionId: target.id });
+
+      const revsAfter = await invoke<Array<{ id: string; source: string }>>(
+        "list_revisions",
+        { documentId: rid },
+      );
+      const guardKept = revsAfter.some((r) => r.id === restored.guardRevisionId);
+      add(
+        "restore-guard",
+        "الاستعادة تحفظ الحالة الحالية أولًا",
+        guardKept && restored.blocks[0]?.text === "النسخة الأولى",
+        `اللقطتان في السجل (${revsAfter.length}) وشبكة الأمان محفوظة`,
+      );
+    } catch (e) {
+      add("restore-guard", "الاستعادة تحفظ الحالة الحالية", false, String(e));
+    }
+  }
 
   return checks;
 }

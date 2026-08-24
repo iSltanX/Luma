@@ -16,7 +16,7 @@
 
 ## الحالة
 
-المرحلتان ١ و٢ مكتملتان. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror.
+المراحل ١ و٢ و٣ مكتملة. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror، والتخزين والحفظ التلقائي في `src-tauri/src/storage/`.
 
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
 `src/app.css` رموز مؤقتة — المرحلة ٤ تستبدلها بطبقة مولَّدة.
@@ -46,10 +46,11 @@ LUMA_SELFTEST=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/
 
 ```
 src/editor/    نواة المحرر — لا تحفظ ولا تعرف المكتبة (README فيها)
-src/lib/       bidi.ts سلاسل الواجهة · fonts.css
+src/lib/       autosave.ts · session.ts · bidi.ts · fonts.css
+src/components/ SaveStatus.svelte
 src/dev/       ⚠️ أدوات تطوير لا تُشحن
 src/app.css    ⚠️ رموز مؤقتة حتى المرحلة ٤
-src-tauri/     النواة الأصلية — النافذة والقائمة ومسار التخزين
+src-tauri/     النواة الأصلية — storage/ والنافذة والقائمة والأوامر
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة
 tests/         وحدات + حارس الحدود + e2e/ لـPlaywright
 docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
@@ -64,5 +65,7 @@ docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 3. **RTL يُبنى في المكوّن** بخصائص تخطيط منطقية، ولا يُعكس chrome النظام.
 4. **التتبّع صفر على كل نص عربي**، وارتفاع السطر مصرَّح به لا تلقائي، ولا نص عربي دون ١٢ نقطة.
 5. **لا ميزة خارج `Luma.md`** — ولا كيان بيانات لميزة غير معتمدة.
+6. **لا زر حفظ ولا اختصار حفظ يدوي** — الحفظ تلقائي دائم، وكل كتابة ذرّية.
+7. **لا يُستبدل ملف سليم بجزئي** — كل كتابة تمرّ بـ`write_atomic`.
 
 قبل أي عمل على العربية أو الاتجاه: [docs/arabic-battery.md](docs/arabic-battery.md).
