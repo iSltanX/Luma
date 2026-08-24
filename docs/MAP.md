@@ -15,14 +15,20 @@
 | أغيّر خطًا أو أضيف وزنًا | `public/fonts/` + `src/lib/fonts.css` | §٨ — Almarai أربعة أوزان فقط |
 | أغيّر لونًا أو مقاسًا | `src/app.css` ⚠️ مؤقت | §٩ — **لا لون يدوي** |
 | أمسّ مظهر مساحة الكتابة | `src/editor.css` | §٩ أنماط النص |
-| أعمل على نواة المحرر | `src/probe/candidates/prosemirror.ts` → يصير `src/editor/` في المرحلة ٢ | §١ القدرات الخمس |
-| أضيف دورًا للكتل | مخطط ProseMirror + `src/probe/types.ts` | `Luma.md` §٥ — **فقرة وH1 وH2 فقط** |
+| أعمل على نواة المحرر | `src/editor/` — اقرأ `src/editor/README.md` أولًا | §١ و§٧ |
+| أغيّر تجميع التراجع | `src/editor/EditorCore.ts` → `UNDO_GROUP_DELAY_MS` | §٧ **ثابت** |
+| أمسّ اللصق أو التنظيف | `src/editor/paste.ts` | §٧ النص المختلط |
+| أصيغ نصًّا للواجهة فيه أرقام أو لاتيني | `src/lib/bidi.ts` | §٧ **ثابت** |
+| أضيف صلاحية Tauri | `src-tauri/capabilities/default.json` | أقل صلاحية تكفي |
+| أضيف دورًا للكتل | `src/editor/schema.ts` + `blocks.ts` | `Luma.md` §٥ — **فقرة وH1 وH2 فقط** |
 
 ## نقاط حسّاسة
 
 - **`luma_data_dir`** — مثبَّت على `~/Library/Application Support/Luma/` ولا يُشتق من معرّف الحزمة. المعرّف مؤقت ويُستبدل في المرحلة ٨؛ اشتقاق المسار منه يفقد بيانات المستخدم. اختبار في `src-tauri/src/lib.rs` يمنع الانحراف.
-- **`src/probe/`** و**`src/app.css`** — مؤقتان بحكم الخطة. لا يُبنى عليهما شيء دائم.
-- **`bench_mode` / `demo_mode`** — أدوات مرحلة ١، تُحذف مع `probe/`.
+- **`src/app.css`** — رموز مؤقتة بحكم الخطة، تُستبدل في المرحلة ٤.
+- **`src/dev/`** و**`demo_mode`/`selftest_mode`** — أدوات تطوير، تُستورد ديناميكيًا فلا تدخل حزمة الإنتاج.
+- **حدود `src/editor/`** — يحرسها `tests/editor-boundaries.test.ts`. لا تستورد فيها من التخزين أو Tauri أو المكتبة: الاختبار يسقط.
+- **التراجع مكدّس واحد** — بند القائمة يبثّ `luma://menu` والواجهة تنفّذ. لا تُعِده `PredefinedMenuItem::undo`: يوقظ مدير تراجع WebKit فيتنازع مكدّسان على النص.
 
 ## الاختبار
 
@@ -31,10 +37,11 @@
 | Rust | `npm run check:rust` | — |
 | الأنواع | `npm run check` | — |
 | الوحدات | `npm run test` | — |
-| داخل `Luma.app` | يدوي + `LUMA_BENCH=1` | **لا WebDriver لـWKWebView على macOS** |
+| داخل `Luma.app` | `LUMA_SELFTEST=1` | **لا WebDriver لـWKWebView على macOS** |
+| طبقة الويب | `npm run test:e2e` | ليس WKWebView — كشف انحدار فقط |
 
 ما لا تحكم عليه الأتمتة إطلاقًا: الإملاء الأصلي، قوائم السياق، VoiceOver، تكبير نص النظام، سلوك النافذة، الإحساس العام للكتابة. يُختبر يدويًا داخل التطبيق.
 
 ## الأدلة
 
-`docs/evidence/` — تقرير القياس ولقطات التحقق للمرحلة ١.
+`docs/evidence/` — تقارير القياس والفحص الذاتي ولقطات التحقق.

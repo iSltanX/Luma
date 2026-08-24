@@ -13,3 +13,4 @@ src-tauri/target/
 .vite/
 test-results/
 playwright-report/
+/tests/e2e/.cache/

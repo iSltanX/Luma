@@ -16,9 +16,10 @@
 
 ## الحالة
 
-المرحلة ١ (بوابة القدرات) مكتملة. الغلاف Tauri مُثبَّت، ونواة المحرر ProseMirror — [ADR ٠٠٠١](docs/decisions/0001-shell-tauri.md) و[٠٠٠٢](docs/decisions/0002-editor-core.md).
+المرحلتان ١ و٢ مكتملتان. الغلاف Tauri، ونواة المحرر `src/editor/` على ProseMirror.
 
-`src/probe/` أداة قياس مؤقتة للمرحلة ١ — **تُحذف في المرحلة ٢** ويحل محلها `EditorCore` حقيقي.
+`src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
+`src/app.css` رموز مؤقتة — المرحلة ٤ تستبدلها بطبقة مولَّدة.
 
 ## الحزمة
 
@@ -32,22 +33,25 @@ npm run app:build    # بناء Luma.app
 npm run verify       # فحص الأنواع + clippy + الاختبارات
 ```
 
-القياس داخل التطبيق (لا WebDriver لـWKWebView على macOS):
+الفحص داخل التطبيق (لا WebDriver لـWKWebView على macOS):
 
 ```bash
-LUMA_BENCH=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/luma
+LUMA_SELFTEST=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/luma
 ```
 
-`LUMA_DEMO=1` يفتح مستندًا مع التركيز والآلة الكاتبة للتحقق البصري.
+النتيجة → `~/Library/Application Support/Luma/selftest-report.json`.
+`LUMA_DEMO=1` يفتح مستندًا طويلًا للتحقق البصري. `npm run test:e2e` لـPlaywright.
 
 ## الخريطة
 
 ```
-src/           طبقة العرض — الواجهة ونواة المحرر
-  probe/       ⚠️ مؤقت: مقارنة أسس المحرر (مرحلة ١)
-  app.css      ⚠️ رموز مؤقتة: المرحلة ٤ تستبدلها بطبقة مولَّدة
-src-tauri/     النواة الأصلية — التخزين والنافذة والقائمة
+src/editor/    نواة المحرر — لا تحفظ ولا تعرف المكتبة (README فيها)
+src/lib/       bidi.ts سلاسل الواجهة · fonts.css
+src/dev/       ⚠️ أدوات تطوير لا تُشحن
+src/app.css    ⚠️ رموز مؤقتة حتى المرحلة ٤
+src-tauri/     النواة الأصلية — النافذة والقائمة ومسار التخزين
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة
+tests/         وحدات + حارس الحدود + e2e/ لـPlaywright
 docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 ```
 
