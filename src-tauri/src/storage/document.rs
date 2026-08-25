@@ -205,8 +205,8 @@ fn is_safe_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::storage::model::InlineMark;
     use crate::storage::model::Block;
+    use crate::storage::model::InlineMark;
 
     fn store(name: &str) -> DocumentStore {
         let d = std::env::temp_dir().join(format!("luma-docs-{name}-{}", std::process::id()));

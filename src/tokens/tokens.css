@@ -4,22 +4,22 @@
  */
 
 :root {
-  --surface-paper: #fffbf3;
-  --surface-canvas: #fcf5ed;
-  --surface-raised: #f5eee6;
-  --surface-sunken: #eee7df;
-  --border-subtle: #e3dcd4;
-  --border-strong: #ccc5bd;
-  --border-control: #968877;
+  --surface-paper: #f9f9fa;
+  --surface-canvas: #f4f4f5;
+  --surface-raised: #ededee;
+  --surface-sunken: #e6e6e7;
+  --border-subtle: #dbdbdc;
+  --border-strong: #c4c4c5;
+  --border-control: #868687;
   --text-primary: #2b241c;
   --text-secondary: #534b43;
   --text-muted: #6e665d;
-  --text-on-accent: #fffbf3;
+  --text-on-accent: #f9f9fa;
   --editor-ink: #2b241c;
-  --accent-graphic: #b67642;
-  --accent-text: #905522;
-  --accent-subtle: #fbddc8;
-  --accent-selection: #f7d3b6;
+  --accent-graphic: #5c8b8e;
+  --accent-text: #3e6b6e;
+  --accent-subtle: #e9f1f1;
+  --accent-selection: #dbebeb;
   --state-positive: #416b4a;
   --state-positive-bg: #d2e5d5;
   --state-caution: #815b1d;
@@ -124,10 +124,10 @@
   --text-muted: #8a929e;
   --text-on-accent: #191d24;
   --editor-ink: #d4dae2;
-  --accent-graphic: #a8703c;
-  --accent-text: #c08553;
-  --accent-subtle: #2c2015;
-  --accent-selection: #3c2c1c;
+  --accent-graphic: #6ca2a5;
+  --accent-text: #85b8bb;
+  --accent-subtle: #243a3c;
+  --accent-selection: #344a4c;
   --state-positive: #6d9a76;
   --state-positive-bg: #1a2a1f;
   --state-caution: #b08a4c;

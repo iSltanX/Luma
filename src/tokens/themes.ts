@@ -74,49 +74,49 @@ export const COLOR_ROLES = [
 export const COLOR_VALUES: Record<string, Record<string, string>> =
 {
   "surface/paper": {
-    "paper": "#fffbf3",
+    "paper": "#f9f9fa",
     "mist": "#f7fdff",
     "sage": "#f9fef9",
     "lavender": "#fdfbff",
     "midnight": "#191d24"
   },
   "surface/canvas": {
-    "paper": "#fcf5ed",
+    "paper": "#f4f4f5",
     "mist": "#f1f7fb",
     "sage": "#f3f8f3",
     "lavender": "#f7f5fb",
     "midnight": "#13161c"
   },
   "surface/raised": {
-    "paper": "#f5eee6",
+    "paper": "#ededee",
     "mist": "#eaf0f4",
     "sage": "#ecf1ec",
     "lavender": "#f0eef4",
     "midnight": "#212630"
   },
   "surface/sunken": {
-    "paper": "#eee7df",
+    "paper": "#e6e6e7",
     "mist": "#e3e9ed",
     "sage": "#e5eae5",
     "lavender": "#e9e7ed",
     "midnight": "#0d1014"
   },
   "border/subtle": {
-    "paper": "#e3dcd4",
+    "paper": "#dbdbdc",
     "mist": "#d8dee2",
     "sage": "#dadfda",
     "lavender": "#dedce2",
     "midnight": "#2c313b"
   },
   "border/strong": {
-    "paper": "#ccc5bd",
+    "paper": "#c4c4c5",
     "mist": "#c1c7cb",
     "sage": "#c3c7c3",
     "lavender": "#c7c5cb",
     "midnight": "#434a57"
   },
   "border/control": {
-    "paper": "#968877",
+    "paper": "#868687",
     "mist": "#7f8c94",
     "sage": "#848c84",
     "lavender": "#8c8894",
@@ -144,7 +144,7 @@ export const COLOR_VALUES: Record<string, Record<string, string>> =
     "midnight": "#8a929e"
   },
   "text/on-accent": {
-    "paper": "#fffbf3",
+    "paper": "#f9f9fa",
     "mist": "#f7fdff",
     "sage": "#f9fef9",
     "lavender": "#fdfbff",
@@ -158,32 +158,32 @@ export const COLOR_VALUES: Record<string, Record<string, string>> =
     "midnight": "#d4dae2"
   },
   "accent/graphic": {
-    "paper": "#b67642",
+    "paper": "#5c8b8e",
     "mist": "#4d8bab",
     "sage": "#648e6c",
     "lavender": "#917bab",
-    "midnight": "#a8703c"
+    "midnight": "#6ca2a5"
   },
   "accent/text": {
-    "paper": "#905522",
+    "paper": "#3e6b6e",
     "mist": "#2e6b89",
     "sage": "#456e4e",
     "lavender": "#705b88",
-    "midnight": "#c08553"
+    "midnight": "#85b8bb"
   },
   "accent/subtle": {
-    "paper": "#fbddc8",
+    "paper": "#e9f1f1",
     "mist": "#cfe8f7",
     "sage": "#d7eada",
     "lavender": "#e9dff5",
-    "midnight": "#2c2015"
+    "midnight": "#243a3c"
   },
   "accent/selection": {
-    "paper": "#f7d3b6",
+    "paper": "#dbebeb",
     "mist": "#bcdff5",
     "sage": "#c6e3cb",
     "lavender": "#ded1ef",
-    "midnight": "#3c2c1c"
+    "midnight": "#344a4c"
   },
   "state/positive": {
     "paper": "#416b4a",
