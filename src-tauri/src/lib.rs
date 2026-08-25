@@ -426,10 +426,18 @@ pub fn run() {
                             .root
                             .as_os_str()
                             .is_empty();
-                    // المزلاج لا يُستهلك إلا إذا كان ثمّة من يستقبل
-                    if ready && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    // **المنع أولًا، ثم البثّ مرة واحدة.**
+                    //
+                    // كان المنع داخل شرط المزلاج، فنقرةٌ ثانية على زرّ
+                    // الإغلاق بينما الأولى تنتظر القرص تجد المزلاج
+                    // مأخوذًا — فلا تُمنع أصلًا، وتُهدم النافذة بلا
+                    // حفظ على النص نفسه الذي مُنع فقده قبل لحظة.
+                    // المنع لا يُشترط بالمزلاج؛ البثّ وحده يُشترط به.
+                    if ready {
                         api.prevent_close();
-                        let _ = window.emit("luma://flush-and-close", ());
+                        if !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                            let _ = window.emit("luma://flush-and-close", ());
+                        }
                     }
                 }
                 WindowEvent::Focused(false) => {
