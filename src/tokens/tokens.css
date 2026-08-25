@@ -186,6 +186,16 @@
   --size-focus-ring: 2px;
   --size-focus-offset: 2px;
 
+  --motion-quick: 150ms;
+  --motion-surface: 300ms;
+  --motion-structural: 500ms;
+  --ease-enter: ease-out;
+  --ease-exit: ease-in;
+
+  --shadow-low: 0 1px 2px rgba(0, 0, 0, 0.04);
+  --shadow-mid: 0 4px 12px rgba(0, 0, 0, 0.06);
+  --shadow-deep: 0 8px 24px rgba(0, 0, 0, 0.08);
+
   --editor-measure: var(--size-column);
   --editor-leading: 1.9;
 }

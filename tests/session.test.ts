@@ -59,6 +59,33 @@ function session(
   });
 }
 
+describe("ما كُتب قبل وجود الجلسة لا يضيع", () => {
+  /**
+   * المحرر يُركَّب ويأخذ المؤشر قبل أن تُنشأ الجلسة. وما يُكتب في تلك
+   * النافذة كان لا يبلغها أبدًا — `session?.handleChange` على `null` —
+   * فلا يعرفه الحفظ التلقائي، و`flush()` يقول **صادقًا** إن كل شيء
+   * وصل القرص لأن بُفره فارغ. ثم يُستبدل المحتوى عند فتح مستند آخر
+   * فيختفي بلا أثر.
+   */
+  it("نصٌّ موجود في المحرر لحظة الإنشاء يصير معروفًا للحفظ", async () => {
+    const e = fakeEditor([block("فقرة لُصقت قبل أن تجهز الجلسة")]);
+    const saved: unknown[] = [];
+    const s = session(e, { save: async (p) => void saved.push(p) });
+
+    // المستند يُنشأ من المحتوى القائم لا من ضغطة تالية
+    expect(s.currentId).not.toBeNull();
+    expect(s.contents[0]!.text).toBe("فقرة لُصقت قبل أن تجهز الجلسة");
+
+    expect(await s.flush()).toBe(true);
+    expect(saved).toHaveLength(1);
+  });
+
+  it("المحرر الفارغ لا يُنشئ مستندًا — لا ضجيج في المكتبة", () => {
+    const s = session(fakeEditor([block("   ")]), {});
+    expect(s.currentId).toBeNull();
+  });
+});
+
 describe("الاستئناف لا يمحو ما كُتب قبله", () => {
   /**
    * المؤشر حيّ قبل أن تجهز الجلسة — عمدًا (§١٤).

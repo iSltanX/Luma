@@ -87,6 +87,9 @@
     background: var(--surface-paper);
     /* الفاصل عند نهاية اللوحة — الحافة اليسرى في RTL */
     border-inline-end: 1px solid var(--border-subtle);
+    /* والظل المتوسط يجعلها **تعلو** الورقة لا تلاصقها: عمودٌ ينزلق
+       فوق النص ثم ينسحب عنه، وفارقُ درجةٍ وحدَه لا يقول ذلك — §٦. */
+    box-shadow: var(--shadow-mid);
   }
   .body {
     flex: 1 1 auto;

@@ -83,6 +83,35 @@
   margin: var(--space-032) 0 var(--space-016);
 }
 
+/* محرر · عنوان ثالث — درجة بين العنوان الفرعي ونصّ القراءة.
+   ١٩٫٥ ليست مقاسًا جديدًا بل نصف الخطوة بين ٢٤ و١٩: أصغرُ فرقٍ يُرى
+   ولا يزاحم. والوزن يحمل التمييز لا الحجم وحده. */
+.luma-editor :where(h3) {
+  font-family: var(--luma-editor-family);
+  font-size: 1.0526em; /* ٢٠ ÷ ١٩ */
+  line-height: 1.8;
+  font-weight: 700;
+  letter-spacing: 0;
+  margin: var(--space-024) 0 var(--space-012);
+}
+
+/* محرر · اقتباس كتلة — حافةٌ عند بداية القراءة لا خلفية.
+   الخلفية لوحٌ يقطع النص (وهو ما رُفض في نطاق الآلة الكاتبة)، والحافة
+   تقول «هذا كلامُ غيري» بلا أن تسرق الحبر. والإزاحة منطقية لا يمينية،
+   فتصحّ في الاتجاهين. */
+.luma-editor :where(blockquote) {
+  margin: var(--space-024) 0;
+  padding-inline-start: var(--space-020);
+  border-inline-start: 2px solid var(--border-strong);
+  color: var(--text-secondary);
+  font-style: normal; /* **لا مائل**: العربية لا تُمال — §٥ */
+}
+
+/* الوزن — بديل التمييز للعربية في §٥. لا مائل ولا تحته خط. */
+.luma-editor :where(strong) {
+  font-weight: 700;
+}
+
 /* وضع التركيز: لون رمز مقروء، لا شفافية عشوائية — §٧ **ثابت** */
 .luma-editor :where(.luma-dimmed) {
   color: var(--text-muted);

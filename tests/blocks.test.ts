@@ -8,6 +8,8 @@ import {
   wordCount,
   excerpt,
   BLOCK_ROLES,
+  MARK_TYPES,
+  type Block,
 } from "../src/editor/blocks";
 import { blocksToDoc, docToBlocks } from "../src/editor/convert";
 import { cleanPastedText, textToSlice } from "../src/editor/paste";
@@ -21,8 +23,20 @@ describe("نموذج الكتل", () => {
     expect(isEmptyDocument(doc)).toBe(true);
   });
 
-  it("الأدوار المعتمدة ثلاثة فقط", () => {
-    expect([...BLOCK_ROLES]).toEqual(["body", "h1", "h2"]);
+  /**
+   * الأدوار مجموعة **مغلقة تُوسَّع بقرار**، لا مفتوحة.
+   *
+   * كانت ثلاثة، فاعتُمد معها عنوانٌ ثالث واقتباسُ كتلة (FEEL-PLAN M11)
+   * — وكلاهما موسومٌ «مرشَّح» في التصميم. والاختبار يبقى ليمنع الزيادة
+   * الصامتة: كل دور جديد يمرّ من هنا ومن الوثيقة معًا.
+   */
+  it("الأدوار المعتمدة خمسة", () => {
+    expect([...BLOCK_ROLES]).toEqual(["body", "h1", "h2", "h3", "quote"]);
+  });
+
+  /** والعلامات واحدة: الوزن — §٥ يسمّيه بديل التمييز للعربية. */
+  it("العلامات المعتمدة: الوزن وحده", () => {
+    expect([...MARK_TYPES]).toEqual(["strong"]);
   });
 
   it("المعرّفات فريدة", () => {
@@ -162,5 +176,92 @@ describe("سلاسل الواجهة تحت الاتجاه الثنائي", () =>
     }
     expect(words(1)).toBe("كلمة واحدة");
     expect(words(2)).toBe("كلمتان");
+  });
+});
+
+describe("اللصق يحفظ بنية الأسطر", () => {
+  /**
+   * نصٌّ كتبه صاحبه سطرًا سطرًا — جملة في سطر، أو بيت شعر، أو بند —
+   * كان يصل Luma كتلةً واحدة متكدّسة: الفصل كان بسطرٍ فارغ وحده، وكلّ
+   * سطر مفرد يُستبدل بمسافة. والسطر قرارُ تأليف لا التفاف نافذة.
+   */
+  it("كل سطر يصير كتلة", () => {
+    const slice = textToSlice("السطر الأول.\nالسطر الثاني.\nالثالث.");
+    expect(slice.content.childCount).toBe(3);
+    expect(slice.content.child(0).textContent).toBe("السطر الأول.");
+    expect(slice.content.child(2).textContent).toBe("الثالث.");
+  });
+
+  it("الأسطر الفارغة تُطوى ولا تصير كتلًا فارغة", () => {
+    const slice = textToSlice("أول.\n\n\nثانٍ.\n \nثالث.");
+    expect(slice.content.childCount).toBe(3);
+  });
+
+  it("سطر واحد يُلصق داخل السطر الحالي فلا يشقّه", () => {
+    const slice = textToSlice("عبارة واحدة");
+    expect(slice.openStart).toBe(0);
+    expect(slice.content.child(0).isText).toBe(true);
+  });
+});
+
+describe("الأدوار الموسَّعة والوزن", () => {
+  it("الأدوار الخمسة تعبر إلى المستند وتعود كما هي", () => {
+    const blocks: Block[] = [
+      { id: "a", role: "body", text: "فقرة", marks: [] },
+      { id: "b", role: "h1", text: "عنوان", marks: [] },
+      { id: "c", role: "h2", text: "فرعي", marks: [] },
+      { id: "d", role: "h3", text: "ثالث", marks: [] },
+      { id: "e", role: "quote", text: "اقتباس", marks: [] },
+    ];
+    expect(docToBlocks(blocksToDoc(blocks))).toEqual(blocks);
+  });
+
+  /**
+   * الوزن بديل التمييز للعربية — `Luma.md` §٥. وما لا يعبر الجولة
+   * كاملةً يضيع عند أول حفظ، فالاختبار على الاتجاهين معًا.
+   */
+  it("الوزن يعبر الجولة بإزاحاته", () => {
+    const blocks: Block[] = [
+      {
+        id: "a",
+        role: "body",
+        text: "نصٌّ فيه وزنٌ في وسطه",
+        marks: [{ type: "strong", from: 8, to: 13 }],
+      },
+    ];
+    const back = docToBlocks(blocksToDoc(blocks));
+    expect(back[0]!.text).toBe("نصٌّ فيه وزنٌ في وسطه");
+    expect(back[0]!.marks).toEqual([{ type: "strong", from: 8, to: 13 }]);
+  });
+
+  it("وزنان متلاصقان يعودان مدًى واحدًا", () => {
+    const blocks: Block[] = [
+      {
+        id: "a",
+        role: "body",
+        text: "أبجد هوز",
+        marks: [
+          { type: "strong", from: 0, to: 4 },
+          { type: "strong", from: 4, to: 8 },
+        ],
+      },
+    ];
+    expect(docToBlocks(blocksToDoc(blocks))[0]!.marks).toEqual([
+      { type: "strong", from: 0, to: 8 },
+    ]);
+  });
+
+  it("مدًى خارج حدود النص لا يكسر البناء", () => {
+    const blocks: Block[] = [
+      { id: "a", role: "body", text: "قصير", marks: [{ type: "strong", from: 2, to: 99 }] },
+    ];
+    const back = docToBlocks(blocksToDoc(blocks));
+    expect(back[0]!.text).toBe("قصير");
+    expect(back[0]!.marks).toEqual([{ type: "strong", from: 2, to: 4 }]);
+  });
+
+  it("كتلة بلا علامات تعود بلا علامات", () => {
+    const blocks: Block[] = [{ id: "a", role: "body", text: "بلا وزن", marks: [] }];
+    expect(docToBlocks(blocksToDoc(blocks))[0]!.marks).toEqual([]);
   });
 });

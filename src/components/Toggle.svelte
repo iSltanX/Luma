@@ -43,19 +43,19 @@
     /* border-control هو الحدّ الوحيد المسموح أن يعرّف عنصر تحكم */
     border: 1px solid var(--border-control);
     display: flex; align-items: center; padding: 1px;
-    transition: background-color 140ms ease, border-color 140ms ease;
+    transition: background-color var(--motion-quick) ease, border-color var(--motion-quick) ease;
   }
   .knob {
     inline-size: var(--size-toggle-knob); block-size: var(--size-toggle-knob);
     border-radius: var(--radius-full); background: var(--surface-paper);
     /* يبدأ يمينًا (إيقاف) ويتحرك يسارًا (تشغيل) في RTL */
-    margin-inline-start: auto;
-    transition: margin 140ms ease;
+    margin-inline-end: auto;
+    transition: margin var(--motion-quick) ease;
   }
   input:checked + .track {
     background: var(--accent-graphic); border-color: var(--accent-graphic);
   }
-  input:checked + .track .knob { margin-inline-start: 0; margin-inline-end: auto; }
+  input:checked + .track .knob { margin-inline-end: 0; margin-inline-start: auto; }
 
   input:focus-visible + .track {
     outline: var(--size-focus-ring) solid var(--accent-graphic);

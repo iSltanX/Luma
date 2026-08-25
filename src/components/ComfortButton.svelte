@@ -48,7 +48,7 @@
     border: 1px solid var(--border-strong);
     color: var(--text-secondary);
     cursor: pointer;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color var(--motion-quick) ease, color var(--motion-quick) ease;
   }
   .comfort:hover:not(:disabled) {
     background: var(--surface-raised);

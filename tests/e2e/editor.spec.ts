@@ -103,11 +103,32 @@ test("النص المختلط يبقى قابلًا للتحرير بترتيب�
   await expect(page.locator(`${EDITOR} p`).first()).toHaveText("كتبت hello للعالم");
 });
 
-test("المخطط بلا marks: لا غامق ولا مائل يدخلان", async ({ page }) => {
+test("الوزن يدخل، والمائل لا — §٥", async ({ page }) => {
   await typeInto(page, "نص عربي");
   await page.keyboard.press("Meta+a");
-  await page.keyboard.press("Meta+b"); // لا أمر مرتبط به
-  await expect(page.locator(`${EDITOR} strong, ${EDITOR} b, ${EDITOR} em, ${EDITOR} i`)).toHaveCount(0);
+  await page.keyboard.press("Meta+b");
+  // «بديل التمييز هو علامة الاقتباس العربية «» أو **الوزن**» — §٥،
+  // فالوزن ما تسمّيه الوثيقة بديلًا لا استثناءً منها (FEEL-PLAN M11).
+  await expect(page.locator(`${EDITOR} strong`)).toHaveCount(1);
+  // **ولا مائل**: العربية لا تُمال، ولا عقدة له في المخطط أصلًا
+  await expect(page.locator(`${EDITOR} em, ${EDITOR} i`)).toHaveCount(0);
+  // ويُرفع بالضغطة نفسها
+  await page.keyboard.press("Meta+b");
+  await expect(page.locator(`${EDITOR} strong`)).toHaveCount(0);
+});
+
+test("اللصق لا يُدخل وزنًا وإن عرفه المخطط", async ({ page }) => {
+  await typeInto(page, "سطر");
+  await page.evaluate(() => {
+    const dt = new DataTransfer();
+    dt.setData("text/html", "<p><strong>موزون</strong> من الخارج</p>");
+    dt.setData("text/plain", "موزون من الخارج");
+    document
+      .querySelector(".luma-editor")!
+      .dispatchEvent(new ClipboardEvent("paste", { clipboardData: dt, bubbles: true, cancelable: true }));
+  });
+  await expect(page.locator(`${EDITOR}`)).toContainText("موزون من الخارج");
+  await expect(page.locator(`${EDITOR} strong`)).toHaveCount(0);
 });
 
 test("تغيير حجم الخط لا يغيّر بنية المحتوى", async ({ page }) => {

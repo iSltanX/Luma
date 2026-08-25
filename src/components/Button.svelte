@@ -53,7 +53,7 @@
     border-radius: var(--radius-sm);
     border: 1px solid transparent;
     cursor: pointer;
-    transition: background-color 120ms ease, border-color 120ms ease;
+    transition: background-color var(--motion-quick) ease, border-color var(--motion-quick) ease;
   }
   .lg { min-height: var(--size-btn-lg); padding-inline: var(--space-020); }
   .md { min-height: var(--size-btn-md); padding-inline: var(--space-016); }

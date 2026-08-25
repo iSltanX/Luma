@@ -7,19 +7,27 @@
    * «يظهر عند تحديد نص فقط ويختفي عند استئناف الكتابة — لا يوجد شريط
    * تنسيق دائم في Luma.» `Luma.md` §٥ **ثابت**.
    *
-   * **المجموعة المعتمدة ثلاثة أدوار وعلامة اقتباس.** H3 وغامق وقائمة
-   * في التصميم بوسم «مرشحة» — و«لا ميزة خارج `Luma.md`» يمنع بناءها
-   * قبل اعتمادها. **ولا مائل**: العربية لا تُمال، وبديل التمييز «».
+   * **المجموعة:** أربعة أدوار (عادي · عنوان · فرعي · ثالث)، واقتباسُ
+   * كتلة، والوزن، وعلامة الاقتباس العربية. اعتُمدت H3 والاقتباس
+   * والوزن بعد أن كانت «مرشَّحة» في التصميم — والوزن تسمّيه `Luma.md`
+   * §٥ نفسها بديلَ التمييز للعربية.
+   *
+   * **ولا مائل**: العربية لا تُمال.
    *
    * لا يسرق التركيز: `mousedown` مُلغى، فيبقى المؤشر والتحديد في النص.
    */
   let {
     role,
+    strong = false,
     onrole,
+    onstrong,
     onquote,
   }: {
     role: BlockRole | null;
+    /** التحديد كلّه موزون — حالة زرّ الوزن. */
+    strong?: boolean;
     onrole: (r: BlockRole) => void;
+    onstrong: () => void;
     onquote: () => void;
   } = $props();
 
@@ -27,9 +35,11 @@
     { id: "body", label: "عادي", name: "فقرة عادية" },
     { id: "h1", label: "H1", name: "عنوان رئيسي" },
     { id: "h2", label: "H2", name: "عنوان فرعي" },
+    { id: "h3", label: "H3", name: "عنوان ثالث" },
   ];
 
-  const COUNT = ROLES.length + 1;
+  /** الأدوار، ثم الاقتباس الكتلي، ثم الوزن، ثم علامة الاقتباس. */
+  const COUNT = ROLES.length + 3;
 
   /**
    * تركيز متنقّل: الشريط محطة تركيز **واحدة** والأسهم تنقل بين أدواته.
@@ -90,10 +100,46 @@
   <button
     type="button"
     class="tool"
-    aria-label="إحاطة بعلامة الاقتباس العربية"
+    class:on={role === "quote"}
+    aria-pressed={role === "quote"}
+    aria-label="اقتباس كتلة"
     tabindex={focused === ROLES.length ? 0 : -1}
-    data-quote
+    data-role="quote"
     onfocus={() => (focused = ROLES.length)}
+    onclick={() => onrole("quote")}
+  >
+    <svg viewBox="0 0 16 16" aria-hidden="true" class="glyph">
+      <path
+        d="M13 3.5v9M9.5 5.5h-4M9.5 8h-4M9.5 10.5h-4"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="1.4"
+        stroke-linecap="round"
+      />
+    </svg>
+  </button>
+
+  <button
+    type="button"
+    class="tool strong"
+    class:on={strong}
+    aria-pressed={strong}
+    aria-label="وزن — تمييز داخل السطر"
+    tabindex={focused === ROLES.length + 1 ? 0 : -1}
+    data-strong
+    onfocus={() => (focused = ROLES.length + 1)}
+    onclick={onstrong}
+  >
+    ب
+  </button>
+
+  <button
+    type="button"
+    class="tool"
+    aria-label="إحاطة بعلامة الاقتباس العربية"
+    tabindex={focused === ROLES.length + 2 ? 0 : -1}
+    data-quote
+    onfocus={() => (focused = ROLES.length + 2)}
     onclick={onquote}
   >
     «»
@@ -104,15 +150,18 @@
   .toolbar {
     display: inline-flex;
     align-items: center;
-    gap: var(--space-004);
-    padding: var(--space-004) var(--space-008);
+    gap: var(--space-002);
+    /* بلا حشوة رأسية: الهدف اللمسي ٣٢ داخل الأزرار نفسها (§١٣)،
+       وحشوةٌ فوقه تزيد الشريط سُمكًا بلا أن تزيد أحدًا وصولًا. */
+    padding: 0 var(--space-004);
     background: var(--surface-raised);
-    /* التصميم يرفع الطبقة بظل. الظل لون، ولا لون خارج طبقة الرموز —
-       ولا رمز ظل في مجموعات Figma الثلاث. الرفع هنا بفارق السطح وحدّ
-       قوي، وهو ما يصفه §٩ لثيم «ليل» أصلًا: «تعتمد الطبقات على فرق
-       السطح أكثر من الظل». الطريقة نفسها في `إشعار عابر`. */
+    /* الأداة العائمة تُرفع بالظل المتوسط من نظام الظلال (اللغة
+       البصرية §٦) — دخل الظل طبقة الرموز في FEEL-PLAN M0 فزال مانع
+       «لا رمز ظل». والحدّ يبقى معه: في «ليل» تعتمد الطبقات على فرق
+       السطح والحدّ أكثر من الظل (§٩). */
     border: 1px solid var(--border-strong);
-    border-radius: var(--radius-md);
+    border-radius: var(--radius-sm);
+    box-shadow: var(--shadow-mid);
   }
   .tool {
     inline-size: var(--size-hit);
@@ -142,6 +191,14 @@
   .tool:focus-visible {
     outline: var(--size-focus-ring) solid var(--accent-graphic);
     outline-offset: var(--size-focus-offset);
+  }
+  /* حرف «ب» بوزنه هو ما يدلّ على الوزن — لا رمز لاتيني B */
+  .strong {
+    font-weight: 700;
+  }
+  .glyph {
+    inline-size: var(--size-icon);
+    block-size: var(--size-icon);
   }
   .sep {
     inline-size: 1px;

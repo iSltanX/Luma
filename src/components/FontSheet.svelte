@@ -14,6 +14,7 @@
     type FontSource,
   } from "../lib/fonts";
   import { fontStack } from "../lib/preferences.svelte";
+  import { surfaceIn, surfaceOut } from "../lib/transitions";
   import { isolate } from "../lib/bidi";
 
   /**
@@ -122,10 +123,19 @@
   role="presentation"
   onclick={onclose}
   onkeydown={onkeydown}
+  in:surfaceIn
+  out:surfaceOut
 ></div>
 
+<!--
+  الورقة تصعد قليلًا وهي تظهر. و`base` يحمل تحويل التمركز: الإزاحة
+  تُكتب في `transform` نفسه، فبدونه يُلغى التمركز أثناء الحركة فتقفز
+  الورقة إلى طرف النافذة ثم تعود.
+-->
 <div
   class="sheet"
+  in:surfaceIn={{ rise: 8, base: "translateX(50%) " }}
+  out:surfaceOut={{ rise: 8, base: "translateX(50%) " }}
   role="dialog"
   aria-modal="true"
   aria-label="اختيار خط الكتابة"
@@ -243,6 +253,9 @@
     background: var(--surface-paper);
     border: 1px solid var(--border-strong);
     border-radius: var(--radius-lg);
+    /* الظل العميق — «للنوافذ الحوارية» (اللغة البصرية §٦). حوارٌ يطفو
+       فوق شاشةٍ كاملة، وارتفاعه هو ما يقول إنها تحته لا خلفه. */
+    box-shadow: var(--shadow-deep);
     overflow: hidden;
   }
 

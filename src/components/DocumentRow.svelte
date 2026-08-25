@@ -56,7 +56,7 @@
     background: transparent;
     text-align: start;
     cursor: pointer;
-    transition: background-color 120ms ease;
+    transition: background-color var(--motion-quick) ease;
   }
   .row:hover {
     background: var(--surface-sunken);

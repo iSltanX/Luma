@@ -31,6 +31,8 @@
     border-radius: var(--radius-md);
     background: var(--surface-raised);
     border: 1px solid var(--border-strong);
+    /* الظل المتوسط — «للأدوات العائمة» (§٦) */
+    box-shadow: var(--shadow-mid);
     color: var(--text-primary);
     font: var(--text-ui-07); letter-spacing: 0;
   }

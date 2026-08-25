@@ -71,6 +71,21 @@ export class EditorSession {
       },
       onState: (s) => this.onSaveState(s),
     });
+
+    // **ما كُتب قبل أن توجد الجلسة تتبنّاه الجلسة.**
+    //
+    // المؤشر حيّ من أول لحظة عمدًا (§١٤)، والجلسة تُنشأ بعده. وما
+    // يُكتب في تلك النافذة لا يبلغ `handleChange` — لأن `session` كان
+    // `null` حين وقع `onChange` — فيبقى في المحرر وحده: لا يعرفه
+    // الحفظ التلقائي، ولا يعدّه `flush()` معلَّقًا، فيقول **صادقًا** إن
+    // كل شيء وصل القرص. ثم يُستبدل المحرر عند فتح مستند آخر فيختفي
+    // النص بلا أثر ولا رسالة.
+    //
+    // ويكفي أن تُسأل الحالةُ الراهنة مرة عند الإنشاء.
+    const existing = this.editor.getBlocks();
+    if (existing.some((b) => b.text.trim() !== "")) {
+      this.handleChange(existing);
+    }
   }
 
   get currentId(): string | null {

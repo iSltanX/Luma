@@ -177,8 +177,8 @@
 
   <section><h3 class="t-ui-04">شريط التحديد — حالتان</h3>
     <div class="row">
-      <SelectionToolbar role="body" onrole={() => {}} onquote={() => {}} />
-      <SelectionToolbar role="h2" onrole={() => {}} onquote={() => {}} />
+      <SelectionToolbar role="body" onrole={() => {}} onstrong={() => {}} onquote={() => {}} />
+      <SelectionToolbar role="h2" onrole={() => {}} onstrong={() => {}} onquote={() => {}} />
     </div>
     <div class="row comfort-cell"><ComfortButton /></div>
   </section>

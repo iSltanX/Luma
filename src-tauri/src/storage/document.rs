@@ -205,6 +205,7 @@ fn is_safe_id(id: &str) -> bool {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::storage::model::InlineMark;
     use crate::storage::model::Block;
 
     fn store(name: &str) -> DocumentStore {
@@ -222,6 +223,7 @@ mod tests {
                 id: "b1".into(),
                 role: "body".into(),
                 text: text.into(),
+                marks: Vec::new(),
             }],
             created_at: 100,
             updated_at: 100,
@@ -235,6 +237,60 @@ mod tests {
         let d = doc("a1", "بِسْمِ اللَّهِ — كتبت hello «اقتباس» ١٢٣");
         s.save(&d).unwrap();
         assert_eq!(s.load("a1").unwrap().blocks, d.blocks);
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الدور والعلامة يعبران الرحلة كاملةً.**
+    ///
+    /// كان `Block` بلا حقل `marks`، وserde يُسقط ما لا يعرفه صامتًا:
+    /// فالوزن يُرسَل من الواجهة ويُكتب ويختفي بلا خطأ، ثم يثبّت الحفظ
+    /// التلقائي الفقدَ على القرص. واختبار الرحلة القديم عاجز عن كشفه
+    /// لأنه يقارن كتلًا لا تحمل علامات أصلًا.
+    #[test]
+    fn round_trips_new_roles_and_marks() {
+        let s = store("roles");
+        let mut d = doc("a2", "نصّ");
+        d.blocks = vec![
+            Block {
+                id: "b1".into(),
+                role: "h3".into(),
+                text: "عنوان ثالث".into(),
+                marks: Vec::new(),
+            },
+            Block {
+                id: "b2".into(),
+                role: "quote".into(),
+                text: "اقتباسٌ كامل".into(),
+                marks: Vec::new(),
+            },
+            Block {
+                id: "b3".into(),
+                role: "body".into(),
+                text: "فقرة فيها وزن".into(),
+                marks: vec![InlineMark {
+                    kind: "strong".into(),
+                    from: 9,
+                    to: 13,
+                }],
+            },
+        ];
+        s.save(&d).unwrap();
+        assert_eq!(s.load("a2").unwrap().blocks, d.blocks);
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **مستند من قبل العلامات يُقرأ كما هو** — لا هجرة ولا رفع إصدار.
+    #[test]
+    fn documents_without_marks_still_load() {
+        let s = store("nomarks");
+        fs::create_dir_all(s.path_for("old").parent().unwrap()).unwrap();
+        let json = r#"{"schemaVersion":1,"id":"old","title":null,
+            "blocks":[{"id":"b1","role":"body","text":"قديم"}],
+            "createdAt":1,"updatedAt":1,"lastOpenedAt":1}"#;
+        fs::write(s.path_for("old"), json).unwrap();
+        let loaded = s.load("old").unwrap();
+        assert_eq!(loaded.blocks[0].text, "قديم");
+        assert!(loaded.blocks[0].marks.is_empty());
         let _ = fs::remove_dir_all(&s.root);
     }
 

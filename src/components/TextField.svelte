@@ -38,7 +38,7 @@
     border-radius: var(--radius-sm);
     min-block-size: var(--size-btn-md);
     padding-inline: var(--space-012);
-    transition: border-color 120ms ease;
+    transition: border-color var(--motion-quick) ease;
   }
   input::placeholder { color: var(--text-muted); }
   input:hover:not(:disabled):not([readonly]) { border-color: var(--text-muted); }

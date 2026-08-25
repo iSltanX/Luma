@@ -741,7 +741,9 @@ export async function runSelfTest(
     document.dispatchEvent(
       new KeyboardEvent("keydown", { key: "Escape", bubbles: true }),
     );
-    await wait(80);
+    // خروج اللوحة صار حركة ٣٠٠ms (اللغة البصرية §١١ — FEEL-PLAN M0)،
+    // فالإغلاق يُقاس بعد سقف الحركة لا لحظة Esc.
+    await wait(360);
     await paint();
     add(
       "panel-escape",

@@ -29,7 +29,7 @@ body {
 
 
   /* تبديل الثيم يقلب الشجرة بسمة واحدة، فلا إعادة بناء ولا فقد تمرير */
-  transition: background-color 160ms ease, color 160ms ease;
+  transition: background-color var(--motion-quick) ease, color var(--motion-quick) ease;
 
   /* الصفحة نفسها لا تُمرَّر: التمرير داخل مساحة الكتابة وحدها */
   overflow: hidden;
@@ -65,6 +65,15 @@ body {
 :root {
   --luma-status-col: 1;
   --luma-status-justify: start;
+}
+
+/* حشوة المحرر المريح — تُحسب في `App.svelte` من ارتفاع مساحة
+   الكتابة لا من ارتفاع النافذة، فتوافق نطاق الآلة الكاتبة تمامًا
+   (`vh` يشمل شريط السحب ٤٨px والمساحةُ لا تشمله). والقيمتان هنا هما
+   ما يُرسم به قبل أول حساب. */
+:root {
+  --comfort-pad-top: 45.5vh;
+  --comfort-pad-bottom: 54.5vh;
 }
 
 :root[data-window-controls="right"] {

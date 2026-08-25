@@ -225,6 +225,24 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
     // مدخلها هو مدخل النظام، ولا يُخترع زرّ ثالث في شريط هادئ.
     let settings_item = MenuItem::with_id(app, "settings", "الإعدادات…", true, Some("CmdOrCtrl+,"))?;
 
+    // «إنهاء Luma» بند بمعرّف لا `PredefinedMenuItem::quit` — **وهذا
+    // هو ما يجعل ⌘Q يحفظ**.
+    //
+    // البند المعرَّف مسبقًا يرسل `terminate:` إلى `NSApplication`
+    // (`muda`: `Quit => sel!(terminate:)`)، ولا يعترضه أحد: لا
+    // `applicationShouldTerminate:` في tao ولا wry ولا tauri. فيمضي
+    // إلى `applicationWillTerminate:` ثم `AppState::exit()` ثم
+    // `Event::LoopDestroyed` — وهذا يصل إلينا **`RunEvent::Exit`**، وهي
+    // ذراع لا تُمنع ولا تُؤجَّل، فتموت العملية على نصٍّ لم يصل القرص.
+    //
+    // قِيس داخل `Luma.app`: عند الإنهاء ظهر `Exit` وحده — لا
+    // `ExitRequested` ولا `CloseRequested` ولا `Destroyed`. أي أن
+    // اعتراض `ExitRequested` (أدناه) لم يكن يقع على هذا المسار أصلًا.
+    //
+    // البند بمعرّف يمرّ بـ`on_menu_event` بدله، فيسلك طريق الحفظ نفسه
+    // الذي يسلكه إغلاق النافذة.
+    let quit_item = MenuItem::with_id(app, "quit", "إنهاء Luma", true, Some("CmdOrCtrl+Q"))?;
+
     let app_menu = SubmenuBuilder::new(app, "Luma")
         .item(&PredefinedMenuItem::about(
             app,
@@ -240,7 +258,7 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
         .item(&PredefinedMenuItem::hide_others(app, Some("إخفاء الآخرين"))?)
         .item(&PredefinedMenuItem::show_all(app, Some("إظهار الكل"))?)
         .separator()
-        .item(&PredefinedMenuItem::quit(app, Some("إنهاء Luma"))?)
+        .item(&quit_item)
         .build()?;
 
     // التراجع والإعادة **ليسا** عنصرَي نظام.
@@ -281,14 +299,39 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
 /// يُمنع الإغلاق مرة واحدة فقط: لو فشل الحفظ لا يعلق المستخدم داخل نافذة.
 static CLOSING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
 
-/// ومزلاج ثانٍ لـ⌘Q — **مسارٌ آخر لا يمرّ بإغلاق النافذة إطلاقًا**.
+/// ومزلاج ثانٍ لطلب خروجٍ يبلغنا فعلًا — هدمُ آخر نافذة.
 ///
-/// بند «إنهاء Luma» يرسل `terminate:` إلى `NSApplication` مباشرةً
-/// (`muda`: `PredefinedMenuItemType::Quit => sel!(terminate:)`)، فلا
-/// يقع `CloseRequested` ولا يُبثّ `luma://flush-and-close`. وكانت
-/// النتيجة أن ⌘Q — وهو أشيع طرق إنهاء تطبيقات macOS — يفقد ما لم
-/// يصل القرص بعد: حتى خمس ثوانٍ من الكتابة، وهو سقف الحفظ التلقائي.
+/// ⌘Q لا يمرّ من هنا: مساره `terminate:` ولا يقع عليه `ExitRequested`
+/// إطلاقًا (قِيس — الشرح عند بناء بند «إنهاء Luma»). لذلك صار البند
+/// معرَّفًا يمرّ بـ`on_menu_event`.
 static EXITING: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// **الواجهة جاهزة لاستقبال `luma://flush-and-close`.**
+///
+/// الحدث لا يُخزَّن لمستمع متأخر: البثّ إلى نافذة لم تسجّل مستمعًا بعدُ
+/// يسقط صامتًا ويعود بـ`Ok(())`. وكان طلبُ إغلاق يقع قبل أن تسجّل
+/// الواجهة مستمعها **يحرق المزلاج**: يُمنع الإغلاق ولا يصل الطلب أحدًا،
+/// فلا التطبيق يُغلق ولا المزلاج يُفتح — وأول إغلاق حقيقي بعده يهدم
+/// النافذة بلا حفظ.
+///
+/// والحلّ أن يُقاس أمرٌ واحد: هل ثمّة من يستقبل؟ فإن لم يكن، **لا يُمنع
+/// الإغلاق ولا يُستهلك المزلاج** — ولا شيء يُفقد لأن الجلسة لم تُنشأ
+/// بعد ولا بُفر لها.
+static UI_READY: std::sync::atomic::AtomicBool = std::sync::atomic::AtomicBool::new(false);
+
+/// تُعلنها الواجهة بعد إنشاء الجلسة وتسجيل مستمعي النواة.
+#[tauri::command]
+fn ui_ready() {
+    UI_READY.store(true, std::sync::atomic::Ordering::SeqCst);
+}
+
+/// قرار منع الإغلاق — دالة خالصة ليُختبَر ما لا تشغّله أي حزمة فحص.
+///
+/// `ready`: سجّلت الواجهة مستمعها · `latch_taken`: المزلاج مستهلَك
+/// سلفًا · `has_windows`: بقيت نافذة تُبثّ إليها.
+fn should_defer_close(ready: bool, latch_taken: bool, has_windows: bool) -> bool {
+    ready && !latch_taken && has_windows
+}
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
 pub fn run() {
@@ -307,6 +350,7 @@ pub fn run() {
             startup_elapsed_ms,
             memory_rss_kb,
             close_declined,
+            ui_ready,
             commands::seed_library,
             commands::open_project_page,
             commands::save_document,
@@ -327,6 +371,18 @@ pub fn run() {
             let id = event.id().0.as_str();
             if matches!(id, "undo" | "redo" | "settings") {
                 let _ = app.emit("luma://menu", id);
+            } else if id == "quit" {
+                // ⌘Q يسلك طريق الحفظ نفسه الذي يسلكه إغلاق النافذة:
+                // تُفرغ الواجهة ما لديها ثم تهدم نافذتها، فيخرج
+                // التطبيق من تلقائه حين لا تبقى نافذة.
+                //
+                // وإن لم تكن جاهزة بعدُ فلا شيء يُفرَغ — ولا يُترك
+                // المستخدم أمام اختصارٍ لا يفعل شيئًا.
+                if UI_READY.load(std::sync::atomic::Ordering::SeqCst) {
+                    let _ = app.emit("luma://flush-and-close", ());
+                } else {
+                    app.exit(0);
+                }
             }
         })
         .setup(|app| {
@@ -357,13 +413,14 @@ pub fn run() {
             // حتى لا يعلق المستخدم إن فشل الحفظ.
             match event {
                 WindowEvent::CloseRequested { api, .. } => {
-                    if !window
-                        .state::<commands::Storage>()
-                        .root
-                        .as_os_str()
-                        .is_empty()
-                        && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst)
-                    {
+                    let ready = UI_READY.load(std::sync::atomic::Ordering::SeqCst)
+                        && !window
+                            .state::<commands::Storage>()
+                            .root
+                            .as_os_str()
+                            .is_empty();
+                    // المزلاج لا يُستهلك إلا إذا كان ثمّة من يستقبل
+                    if ready && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
                         api.prevent_close();
                         let _ = window.emit("luma://flush-and-close", ());
                     }
@@ -391,15 +448,67 @@ pub fn run() {
                 // التطبيق حيًّا بلا واجهة ولا يخرج أبدًا.
                 //
                 // وخروجٌ طلبه الكود (`code` موجود) يمضي بلا اعتراض.
-                if code.is_none()
-                    && !app.webview_windows().is_empty()
-                    && !EXITING.swap(true, std::sync::atomic::Ordering::SeqCst)
-                {
+                // القراءة قبل الاستهلاك: `swap` كوسيطٍ يُنفَّذ دائمًا،
+                // فيحرق المزلاج ولو لم يكن ثمّة من يستقبل.
+                let defer = code.is_none()
+                    && should_defer_close(
+                        UI_READY.load(std::sync::atomic::Ordering::SeqCst),
+                        EXITING.load(std::sync::atomic::Ordering::SeqCst),
+                        !app.webview_windows().is_empty(),
+                    );
+                if defer && !EXITING.swap(true, std::sync::atomic::Ordering::SeqCst) {
                     api.prevent_exit();
                     let _ = app.emit("luma://flush-and-close", ());
                 }
             }
         });
+}
+
+#[cfg(test)]
+mod close_guards {
+    use super::should_defer_close;
+
+    /// المزلاج لا يُحرق قبل أن يوجد من يستقبل — العطل الذي وقع.
+    #[test]
+    fn no_deferral_before_the_ui_can_receive() {
+        assert!(!should_defer_close(false, false, true));
+    }
+
+    /// وإن كان ثمّة من يستقبل، يُؤجَّل الإغلاق مرة واحدة.
+    #[test]
+    fn defers_once_when_ready() {
+        assert!(should_defer_close(true, false, true));
+        assert!(!should_defer_close(true, true, true));
+    }
+
+    /// **لا يُمنع خروجٌ لا نافذة فيه**: البثّ إلى نافذة مهدومة يعلّق
+    /// التطبيق حيًّا بلا واجهة.
+    #[test]
+    fn never_defers_a_windowless_exit() {
+        assert!(!should_defer_close(true, false, false));
+    }
+
+    /// **حارس انحدار**: بند «إنهاء Luma» المعرَّف مسبقًا يرسل
+    /// `terminate:` فيصل `RunEvent::Exit` — ذراعٌ لا تُمنع — فيموت
+    /// التطبيق على نصٍّ لم يصل القرص. قِيس داخل `Luma.app`.
+    #[test]
+    fn quit_is_an_identified_item_not_a_predefined_one() {
+        let src = include_str!("lib.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let code: String = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+        assert!(
+            !code.contains("PredefinedMenuItem::quit"),
+            "بند الإنهاء المعرَّف مسبقًا يتجاوز الحفظ — يلزم بند بمعرّف يمرّ بـon_menu_event"
+        );
+        assert!(
+            code.contains(r#"MenuItem::with_id(app, "quit""#),
+            "بند الإنهاء بمعرّف مفقود"
+        );
+    }
 }
 
 #[cfg(test)]

@@ -27,6 +27,7 @@ function files(dir: string, exts: string[]): string[] {
 const TOKEN_LAYER = [
   join(SRC, "tokens", "tokens.css"),
   join(SRC, "tokens", "themes.ts"),
+  join(SRC, "tokens", "motion.ts"),
   join(SRC, "tokens", "source.json"),
 ];
 

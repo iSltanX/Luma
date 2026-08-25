@@ -9,6 +9,7 @@
  * يحرس هذا الحدَّ اختبارٌ في `tests/editor-boundaries.test.ts`.
  */
 
+import { sentenceAt } from "./sentence";
 import { EditorState, Plugin, PluginKey, TextSelection } from "prosemirror-state";
 import { EditorView, Decoration, DecorationSet } from "prosemirror-view";
 import { history, undo, redo, undoDepth, redoDepth } from "prosemirror-history";
@@ -67,31 +68,53 @@ export interface EditorCoreOptions {
   ariaLabel?: string;
 }
 
-/**
- * حدود الجُمل العربية.
- *
- * النقطة والسؤال والتعجّب وثلاث نقاط — ومعها علامات الترقيم العربية:
- * `؟` و`،` لا تُنهي جملة، لكن `.` و`؛` و`!` تفعل. والفاصلة تُترك عمدًا
- * لأنها تفصل عبارات داخل الجملة الواحدة لا جملًا.
- */
-const SENTENCE_END = /[.!؟?؛…]+[\s]*/g;
 
 /**
- * حدود الجملة التي يقع فيها موضعٌ داخل نصّ.
+ * سطر المؤشر مقيسًا من DOM — احتياطُ `coordsAtPos` حين يعود بأصفار.
  *
- * تُعاد بإزاحات داخل النص نفسه؛ ومن لا جملة فيه (فقرة بلا ترقيم) يعود
- * بالفقرة كلها — وهو السلوك الصحيح: النص كتلةٌ واحدة فعلًا.
+ * يقيس **المحرف الذي قبل الموضع**: مدًى على محرفٍ حقيقي يعطي مستطيله
+ * دائمًا، بخلاف مدًى منطوٍ عند حدّ عقدة.
  */
-function sentenceAt(text: string, pos: number): { start: number; end: number } {
-  let start = 0;
-  SENTENCE_END.lastIndex = 0;
-  let m: RegExpExecArray | null;
-  while ((m = SENTENCE_END.exec(text)) !== null) {
-    const end = m.index + m[0].length;
-    if (pos < end) return { start, end };
-    start = end;
+function caretRectFromDom(view: EditorView, pos: number): DOMRect | null {
+  let node: Node;
+  let offset: number;
+  try {
+    ({ node, offset } = view.domAtPos(pos));
+  } catch {
+    return null;
   }
-  return { start, end: text.length };
+
+  if (node.nodeType !== Node.TEXT_NODE) {
+    // مرساةٌ عنصر: آخر عقدة نصّ قبل الإزاحة
+    const kids = node.childNodes;
+    let found: Text | null = null;
+    for (let i = Math.min(offset, kids.length) - 1; i >= 0 && !found; i--) {
+      const child = kids[i]!;
+      // **الابن قد يكون النصّ نفسه.** `TreeWalker` لا يعيد جذره أبدًا،
+      // فمسحُه وحده يُسقط الحالة الغالبة: فقرةٌ بلا زخارف أبناؤها عقد
+      // نصّ مباشرة — وعندها كان الاحتياط يعود فارغًا فيضيع المؤشر.
+      if (child.nodeType === Node.TEXT_NODE) {
+        found = child as Text;
+        break;
+      }
+      const walker = document.createTreeWalker(child, NodeFilter.SHOW_TEXT);
+      let last: Text | null = null;
+      while (walker.nextNode()) last = walker.currentNode as Text;
+      found = last;
+    }
+    if (!found) return null;
+    node = found;
+    offset = found.length;
+  }
+
+  const text = node as Text;
+  if (text.length === 0) return null;
+  const start = Math.max(0, Math.min(text.length - 1, offset - 1));
+  const range = document.createRange();
+  range.setStart(text, start);
+  range.setEnd(text, start + 1);
+  const rects = range.getClientRects();
+  return rects.length ? rects[0]! : null;
 }
 
 /**
@@ -192,12 +215,16 @@ export class EditorCore {
           "Mod-z": undo,
           "Mod-Shift-z": redo,
           "Mod-y": redo,
-          // مجموعة التنسيق المعتمدة كاملة بلوحة المفاتيح — `Luma.md` §٥
-          // و§١٣: «كل وظيفة أساسية متاحة بلوحة المفاتيح». المجموعة ثلاثة
-          // أدوار لا أكثر، فلا اختصار لـH3 ولا لغامق.
+          // **مجموعة التنسيق كاملة بلوحة المفاتيح** — §١٣: «كل وظيفة
+          // أساسية متاحة بلوحة المفاتيح». وما دام الزرّ موجودًا فله
+          // اختصاره: زرٌّ بلا اختصار يجعل الوظيفة نصف متاحة.
           "Mod-Alt-0": () => this.applyRole("body"),
           "Mod-Alt-1": () => this.applyRole("h1"),
           "Mod-Alt-2": () => this.applyRole("h2"),
+          "Mod-Alt-3": () => this.applyRole("h3"),
+          "Mod-Alt-q": () => this.applyRole("quote"),
+          // الوزن — بديل التمييز للعربية في §٥. و⌘B عُرفٌ عالمي.
+          "Mod-b": () => this.toggleStrong(),
         }),
         keymap(baseKeymap),
         blockIdPlugin(),
@@ -318,7 +345,17 @@ export class EditorCore {
     try {
       const { from } = view.state.selection;
       const c = view.coordsAtPos(from);
-      return new DOMRect(c.left, c.top, c.right - c.left, c.bottom - c.top);
+      // **مستطيلٌ صفريّ ليس مؤشرًا.** WebKit يعطي أحيانًا مدًى بلا
+      // مستطيلات لموضعٍ عند حدّ عقدة — كآخر محرف في آخر فقرة — فيعود
+      // `coordsAtPos` بأصفار والمحرر مرسومٌ سليم (قِيس: ارتفاع نافذة
+      // العرض ٤٢٩px ومستطيل المؤشر صفر). والبناء عليه يقرأ المؤشر في
+      // أعلى النافذة فيمرّر إلى مكانٍ ليس فيه — أو لا يمرّر أصلًا،
+      // وهو ما كان يُبقي السطر النشط خارج نطاق الآلة الكاتبة عند
+      // الدخول وعند تفعيل الطبقة وعند تغيير حجم النافذة.
+      if (c.top !== 0 || c.bottom !== 0) {
+        return new DOMRect(c.left, c.top, c.right - c.left, c.bottom - c.top);
+      }
+      return caretRectFromDom(view, from);
     } catch {
       return null;
     }
@@ -425,6 +462,39 @@ export class EditorCore {
   /** يحوّل الكتل المشمولة بالتحديد إلى الدور المطلوب. */
   setRole(role: BlockRole): void {
     this.applyRole(role);
+  }
+
+  /**
+   * يبدّل الوزن على التحديد.
+   *
+   * **الوزن بديل التمييز للعربية** — `Luma.md` §٥: «لا مائل… بديل
+   * التمييز هو علامة الاقتباس العربية «» أو الوزن».
+   *
+   * ويعمل على تحديدٍ غير فارغ وحده: علامةٌ مخزَّنة لمؤشرٍ منطوٍ تعني
+   * حالةً غير مرئية يحملها المحرر، ونموذج المحتوى لا يحفظ نيّة.
+   */
+  toggleStrong(): boolean {
+    const view = this.view;
+    if (!view || !this.editable) return false;
+    const mark = schema.marks["strong"];
+    const { from, to, empty } = view.state.selection;
+    if (!mark || empty) return false;
+    const has = view.state.doc.rangeHasMark(from, to, mark);
+    const tr = view.state.tr;
+    if (has) tr.removeMark(from, to, mark);
+    else tr.addMark(from, to, mark.create());
+    view.dispatch(tr);
+    return true;
+  }
+
+  /** هل التحديد كلّه موزون؟ — لحالة الزرّ في الشريط. */
+  get isStrong(): boolean {
+    const view = this.view;
+    const mark = schema.marks["strong"];
+    if (!view || !mark) return false;
+    const { from, to, empty } = view.state.selection;
+    if (empty) return false;
+    return view.state.doc.rangeHasMark(from, to, mark);
   }
 
   /** الشكل الأمري للتحويل — يعيد `true` إن غيّر شيئًا، كما تتوقّع الاختصارات. */

@@ -280,7 +280,14 @@ fn bundled() -> Vec<FontReference> {
 pub fn available(root: &Path) -> Vec<FontReference> {
     let mut out = bundled();
 
+    // **العائلة اختيارٌ واحد لا وجهٌ واحد.** ما يختاره المستخدم عائلة،
+    // و`fontFamily` في التفضيلات اسمُها — فوجهان منها (Regular وBold)
+    // ليسا خطّين يُعرضان مرتين. وتكرارهما كان يفجّر ورقة الخط بمفتاح
+    // مكرَّر ولا مخرج منها داخل التطبيق.
     for f in imported(root) {
+        if out.iter().any(|x| x.family_name == f.family_name) {
+            continue;
+        }
         out.push(f);
     }
 
@@ -317,6 +324,11 @@ pub fn imported(root: &Path) -> Vec<FontReference> {
         let Some(family) = platform::family_of(&path) else {
             continue;
         };
+        // وجهٌ ثانٍ من عائلة مستوردة سلفًا: الملف مسجَّل بالفعل عبر
+        // `register_all`، والقائمة تعرض العائلة مرة واحدة.
+        if out.iter().any(|f: &FontReference| f.family_name == family) {
+            continue;
+        }
         out.push(FontReference {
             id: family.clone(),
             arabic_coverage: platform::coverage(&family),
@@ -493,5 +505,51 @@ mod tests {
         assert_eq!(b.len(), 1);
         assert_eq!(b[0].family_name, "Almarai");
         assert!(!b.iter().any(|f| f.family_name == "Cairo"));
+    }
+}
+
+#[cfg(test)]
+mod family_uniqueness {
+    use super::*;
+
+    /// **وجهان من عائلة واحدة لا يصيران خطّين.**
+    ///
+    /// كان معرّف الخط اسمَ عائلته، فاستيراد `Regular` ثم `Bold` من
+    /// العائلة نفسها ينتج معرّفين متطابقين — وورقة الخط تُفهرس صفوفها
+    /// بالمعرّف، فتنكسر بمفتاح مكرَّر ولا مخرج منها داخل التطبيق.
+    /// والملفّان يبقيان مسجَّلين كلاهما عبر `register_all`: ما يُدمج
+    /// هو العرض لا الرسم.
+    #[test]
+    fn two_faces_of_one_family_appear_once() {
+        let root = std::env::temp_dir().join("luma-test-font-family");
+        let dir = fonts_dir(&root);
+        let _ = std::fs::remove_dir_all(&root);
+        std::fs::create_dir_all(&dir).unwrap();
+
+        let src = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("../public/fonts");
+        let mut copied = 0;
+        for face in ["Almarai-Regular.ttf", "Almarai-Bold.ttf"] {
+            if std::fs::copy(src.join(face), dir.join(face)).is_ok() {
+                copied += 1;
+            }
+        }
+        assert_eq!(copied, 2, "وجها الاختبار غير موجودين في public/fonts");
+
+        let list = imported(&root);
+        let almarai = list.iter().filter(|f| f.family_name == "Almarai").count();
+        assert_eq!(almarai, 1, "عائلة واحدة تظهر مرة واحدة");
+
+        let _ = std::fs::remove_dir_all(&root);
+    }
+
+    /// ولا معرّف يتكرر في القائمة الكاملة مهما كان مصدره.
+    #[test]
+    fn no_two_fonts_share_an_id() {
+        let root = std::env::temp_dir().join("luma-test-font-ids");
+        let list = available(&root);
+        let mut seen = std::collections::HashSet::new();
+        for f in &list {
+            assert!(seen.insert(f.id.clone()), "معرّف مكرَّر: {}", f.id);
+        }
     }
 }

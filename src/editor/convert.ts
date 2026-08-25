@@ -6,16 +6,66 @@
 
 import type { Node as PMNode, Slice } from "prosemirror-model";
 import { Plugin, PluginKey, type Transaction } from "prosemirror-state";
-import type { Block, BlockRole } from "./blocks";
+import type { Block, BlockRole, InlineMark } from "./blocks";
 import { createBlock, newBlockId } from "./blocks";
 import { schema, NODE_FOR_ROLE, ROLE_FOR_NODE } from "./schema";
+
+/**
+ * محتوى الكتلة عقدًا نصّية، مقطَّعًا عند حدود العلامات.
+ *
+ * الكتلة نصٌّ واحد وعلاماتُه إزاحات فيه، وProseMirror يريد عقدًا
+ * تحمل كلٌّ منها علاماتها. فتُجمع الحدود وتُقطَّع عندها — ولا يُبنى
+ * قطعٌ حيث لا علامة.
+ */
+function inlineFor(b: Block): PMNode | PMNode[] | null {
+  if (!b.text) return null;
+  const strong = schema.marks["strong"];
+  const spans = (b.marks ?? []).filter(
+    (m) => m.type === "strong" && m.from < m.to,
+  );
+  if (!strong || spans.length === 0) return schema.text(b.text);
+
+  const bounds = new Set<number>([0, b.text.length]);
+  for (const m of spans) {
+    bounds.add(Math.max(0, Math.min(b.text.length, m.from)));
+    bounds.add(Math.max(0, Math.min(b.text.length, m.to)));
+  }
+  const points = [...bounds].sort((x, y) => x - y);
+
+  const out: PMNode[] = [];
+  for (let i = 0; i < points.length - 1; i += 1) {
+    const from = points[i]!;
+    const to = points[i + 1]!;
+    if (to <= from) continue;
+    const on = spans.some((m) => m.from <= from && m.to >= to);
+    out.push(schema.text(b.text.slice(from, to), on ? [strong.create()] : null));
+  }
+  return out;
+}
+
+/** علامات الكتلة مقروءةً من عقدتها — الإزاحات في نصّها هي. */
+function marksFromNode(node: PMNode): InlineMark[] {
+  const out: InlineMark[] = [];
+  let at = 0;
+  node.forEach((child) => {
+    const len = child.text?.length ?? 0;
+    if (len > 0 && child.marks.some((m) => m.type.name === "strong")) {
+      const last = out[out.length - 1];
+      // مقطعان متلاصقان يصيران مدًى واحدًا: النصّ واحد والحدّ زائل
+      if (last && last.to === at) out[out.length - 1] = { ...last, to: at + len };
+      else out.push({ type: "strong", from: at, to: at + len });
+    }
+    at += len;
+  });
+  return out;
+}
 
 export function blocksToDoc(blocks: readonly Block[]): PMNode {
   const source = blocks.length > 0 ? blocks : [createBlock("body", "")];
   const nodes = source.map((b) => {
     const type = schema.nodes[NODE_FOR_ROLE[b.role]];
     if (!type) throw new Error(`دور كتلة غير معروف: ${b.role}`);
-    return type.create({ id: b.id }, b.text ? schema.text(b.text) : null);
+    return type.create({ id: b.id }, inlineFor(b));
   });
   const doc = schema.nodes["doc"];
   if (!doc) throw new Error("مخطط بلا عقدة doc");
@@ -28,7 +78,7 @@ function blockFromNode(node: PMNode): Block {
     typeof node.attrs["id"] === "string" && node.attrs["id"]
       ? (node.attrs["id"] as string)
       : newBlockId();
-  return { id, role, text: node.textContent, marks: [] };
+  return { id, role, text: node.textContent, marks: marksFromNode(node) };
 }
 
 export function docToBlocks(doc: PMNode): Block[] {

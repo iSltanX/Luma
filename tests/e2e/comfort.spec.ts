@@ -35,9 +35,14 @@ async function enterComfort(page: Page) {
 /** موضع منتصف السطر النشط بالنسبة إلى مركز نطاق الآلة الكاتبة. */
 function offsetFromBand(page: Page) {
   return page.evaluate(() => {
-    const band = document.querySelector(".band");
-    if (!band) return null;
-    const b = band.getBoundingClientRect();
+    // **النطاق يُحسب ولا يُقرأ من عنصر**: لم يعد يُرسم مستطيلًا خلف
+    // السطر (FEEL-PLAN M10)، ومرساته ٤٥٫٥٪ من مساحة الكتابة — وهي
+    // المصدر نفسه الذي يقيس عليه `lib/typewriter.ts`.
+    const area = document.querySelector(".writing");
+    if (!area) return null;
+    const a = area.getBoundingClientRect();
+    const anchor = a.top + a.height * 0.455;
+    const b = { top: anchor, height: 0 };
     const sel = getSelection();
     if (!sel || sel.rangeCount === 0) return null;
     const rects = sel.getRangeAt(0).getClientRects();
@@ -61,8 +66,29 @@ test("المحرر المريح غلاف واحد: تختفي الأشرطة و�
 
   await enterComfort(page);
 
-  await expect(page.locator(".titlebar")).toHaveCount(0);
-  await expect(page.locator("[data-surface]")).toHaveCount(0);
+  // **الأشرطة تنطوي ولا تُزال** — وهذا ما يجعل أكبر تحوّل في المنتج
+  // متّصلًا لا قطعًا (FEEL-PLAN M2). والمقياس هو الغاية لا الوسيلة:
+  // لا يُرى منها شيء، ولا يصلها تركيز، ولا تبلغ قارئ الشاشة.
+  await expect(page.locator(".titlebar")).toHaveAttribute("inert", "");
+  await expect(page.locator(".surfaces")).toHaveAttribute("inert", "");
+  await expect
+    .poll(() =>
+      page.evaluate(() =>
+        Math.round(document.querySelector(".surfaces")!.getBoundingClientRect().height),
+      ),
+    )
+    .toBe(0);
+  const hidden = await page.evaluate(() => {
+    const cs = (s: string) => getComputedStyle(document.querySelector(s)!);
+    return {
+      bar: cs(".surfaces").opacity,
+      title: cs(".title").opacity,
+      chrome: cs(".titlebar").backgroundColor,
+    };
+  });
+  expect(hidden.bar, "شريط الأسطح").toBe("0");
+  expect(hidden.title, "عنوان النافذة").toBe("0");
+  expect(hidden.chrome, "سطح شريط النافذة").toBe("rgba(0, 0, 0, 0)");
   await expect(page.locator("[data-panel]")).toHaveCount(0);
   // ويبقى النص نفسه — «الخروج لا يغيّر حالة النص»، والدخول كذلك
   await expect(page.locator(EDITOR)).toContainText("فقرة 0");
@@ -77,12 +103,21 @@ test("لا ورقة في المحرر المريح — النص على السط�
   expect(framed, "الورقة مؤطَّرة في الوضع العادي").toBeGreaterThanOrEqual(1);
 
   await enterComfort(page);
+  // الحدّ يبقى بعرضه ويفقد لونه: عرضٌ يتغيّر وسط الحركة يزيح التخطيط
+  // بكسلين، ولونٌ يذوب لا يزيح شيئًا — FEEL-PLAN M2.
+  await expect
+    .poll(() =>
+      page.evaluate(
+        () => getComputedStyle(document.querySelector(".sheet")!).backgroundColor,
+      ),
+    )
+    .toBe("rgba(0, 0, 0, 0)");
   const bare = await page.evaluate(() => {
     const cs = getComputedStyle(document.querySelector(".sheet")!);
-    return { border: parseFloat(cs.borderTopWidth), bg: cs.backgroundColor };
+    return { borderColor: cs.borderTopColor, radius: cs.borderTopLeftRadius };
   });
-  expect(bare.border).toBe(0);
-  expect(bare.bg, "بلا خلفية بطاقة").toBe("rgba(0, 0, 0, 0)");
+  expect(bare.borderColor, "بلا إطار مرئي").toBe("rgba(0, 0, 0, 0)");
+  expect(bare.radius, "بلا انحناء بطاقة").toBe("0px");
 });
 
 // ── الآلة الكاتبة ────────────────────────────────────────────
@@ -144,7 +179,11 @@ test("إطفاء الآلة الكاتبة يوقف التمركز ولا يمس
   await longDoc(page, 16);
   await enterComfort(page);
   await page.click('[data-chip="الآلة الكاتبة"]');
-  await expect(page.locator(".band")).toHaveCount(0);
+  // لا مؤشر مرسوم للطبقة بعد M10 — والدليل سلوكيّ: السطر لا يُنقل
+  await expect(page.locator("[data-chip='الآلة الكاتبة']")).toHaveAttribute(
+    "aria-pressed",
+    "false",
+  );
 
   await page.locator(EDITOR).click();
   await page.keyboard.press("Meta+ArrowDown");
@@ -285,20 +324,26 @@ test("لكل طبقة تعطيل مستقل", async ({ page }) => {
       ]),
     );
 
-  // الافتراضي: الآلة الكاتبة والتركيز يعملان وZen مطفأ — §٧
+  // الافتراضي: الآلة الكاتبة والتركيز يعملان وZen مطفأ — §٧.
+  // والترتيب هو ترتيب الإعدادات نفسه (الآلة الكاتبة ← التركيز ← Zen):
+  // كان مقلوبًا في الشريط، فمن بنى خريطته في أحدهما وجدها معكوسة في
+  // الآخر — FEEL-PLAN M6.
   expect(await state()).toEqual([
-    ["Zen", "false"],
-    ["التركيز", "true"],
     ["الآلة الكاتبة", "true"],
+    ["التركيز", "true"],
+    ["Zen", "false"],
   ]);
 
   await page.click('[data-chip="التركيز"]');
   expect(await state()).toEqual([
-    ["Zen", "false"],
-    ["التركيز", "false"],
     ["الآلة الكاتبة", "true"],
+    ["التركيز", "false"],
+    ["Zen", "false"],
   ]);
   await expect(page.locator(".luma-dimmed")).toHaveCount(0);
   // والآلة الكاتبة لم تتأثر
-  await expect(page.locator(".band")).toHaveCount(1);
+  await expect(page.locator("[data-chip='الآلة الكاتبة']")).toHaveAttribute(
+    "aria-pressed",
+    "true",
+  );
 });

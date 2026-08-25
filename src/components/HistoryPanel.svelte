@@ -118,6 +118,9 @@
     flex-direction: column;
     background: var(--surface-paper);
     border-inline-end: 1px solid var(--border-subtle);
+    /* والظل المتوسط يجعلها **تعلو** الورقة لا تلاصقها — §٦، والشرح
+       في `LibraryPanel`. */
+    box-shadow: var(--shadow-mid);
   }
   .body {
     flex: 1 1 auto;

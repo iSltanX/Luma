@@ -1,5 +1,9 @@
 <script lang="ts">
   import type { Snippet } from "svelte";
+  import { cubicIn, cubicOut } from "svelte/easing";
+  import type { TransitionConfig } from "svelte/transition";
+  import { span } from "../lib/transitions";
+  import { MOTION } from "../tokens/motion";
   import SurfacesBar from "./SurfacesBar.svelte";
   import SaveStatus from "./SaveStatus.svelte";
   import Badge from "./Badge.svelte";
@@ -24,6 +28,7 @@
   let {
     title,
     saveState,
+    saveDebut = false,
     showSaveStatus = true,
     activeSurface = null,
     ontoggle,
@@ -34,16 +39,18 @@
     comfort = false,
     inert = false,
     zenHidden = false,
-    typewriterBand = false,
     host = $bindable<HTMLElement | null>(null),
     scroller = $bindable<HTMLElement | null>(null),
     panel,
     notice,
     comfortBar,
     comfortExit,
+    selectionBar,
   }: {
     title: string;
     saveState: SaveState;
+    /** الظهور الأول لـ«محفوظ» في مستند جديد — `FEEL-PLAN` M0 (ج). */
+    saveDebut?: boolean;
     /** يختفي مؤشر الحفظ أثناء معاينة نسخة — `Luma.md` §٩ **ثابت**. */
     showSaveStatus?: boolean;
     activeSurface?: SurfaceId | null;
@@ -74,31 +81,71 @@
     inert?: boolean;
     /** طبقة Zen: تتراجع العناصر أثناء الكتابة وتعود عند الحاجة. */
     zenHidden?: boolean;
-    /** شريط نطاق الآلة الكاتبة (`123:80`). */
-    typewriterBand?: boolean;
     host?: HTMLElement | null;
     scroller?: HTMLElement | null;
     panel?: Snippet;
     notice?: Snippet;
     comfortBar?: Snippet;
     comfortExit?: Snippet;
+    /** شريط تنسيق النص المحدَّد — يرسو أسفل المساحة، §٥. */
+    selectionBar?: Snippet;
   } = $props();
 
   /** اسم اللوحة لقارئ الشاشة — بديل الترويسة المحذوفة. */
   const panelName = $derived(
     SURFACES.find((s) => s.id === activeSurface)?.label ?? "لوحة جانبية",
   );
+
+  /**
+   * دخول اللوحة وخروجها — «تنساب المساحات الفرعية لتستقر حوله وتختفي
+   * بسلاسة» (مبادئ التجربة ٠٨)، بمدّة اللوحات الجانبية من جدول §١١.
+   *
+   * الانزلاق بهامش سالب لا بعرض متغيّر: عرض اللوحة ثابت فلا يُعاد لفّ
+   * محتواها أثناء الحركة، والورقة لا يتغيّر عرضها (§١٠) بل تنزاح
+   * بسلاسة إلى تمركزها الجديد. ولذلك لا يستعمل `surfaceIn` المشترك:
+   * ذاك يتلاشى ويصعد، وهذه تنزلق من طرفها.
+   */
+  const panelCss = (t: number) =>
+    `margin-inline-start: calc(var(--size-panel) * ${t - 1}); opacity: ${t};`;
+
+  function panelIn(_node: Element): TransitionConfig {
+    return { duration: span(MOTION.surface), easing: cubicOut, css: panelCss };
+  }
+
+  function panelOut(_node: Element): TransitionConfig {
+    // دخول المحرر المريح يطوي اللوحة فورًا: انسحابها البطيء داخل
+    // مشهدٍ تبدّل كاملًا ضجيج لا انسياب.
+    //
+    // ولا تلتقط نقرًا وهي ذاهبة: نقرةٌ بعد الإغلاق مباشرةً كانت تصيب
+    // صفَّ مستندٍ في لوحةٍ يراها المستخدم تنسحب — الشرح في
+    // `lib/transitions.ts`.
+    return {
+      duration: span(MOTION.surface, comfort),
+      easing: cubicIn,
+      css: (t) => `${panelCss(t)} pointer-events: none;`,
+    };
+  }
 </script>
 
 <div class="shell" class:comfort {inert}>
-  {#if !comfort}
-    <header class="titlebar luma-chrome" data-tauri-drag-region>
-      <span class="title">{title}</span>
-      {#if showSaveStatus}
-        <div class="save"><SaveStatus state={saveState} /></div>
-      {/if}
-    </header>
+  <!-- **شريط النافذة قائم في الوضعين، وشريط الأسطح ينطوي.**
+       كان الوضعان شجرتين تتبادلان مكانهما، فيقع أكبر تحوّل في المنتج
+       قطعًا واحدًا. الآن يبقى شريط السحب حيث هو — وهو منطقة السحب في
+       الحالين — ويذوب سطحه وما يحمله، بينما ينطوي شريط الأسطح
+       بارتفاعه. و`inert` يُخرج ما انطوى من التركيز ومن القراءة،
+       فلا يبقى للقارئ الآلي ما لا يراه صاحبه — §٧. -->
+  <header
+    class="titlebar luma-chrome"
+    data-tauri-drag-region
+    inert={comfort || undefined}
+  >
+    <span class="title">{title}</span>
+    {#if showSaveStatus}
+      <div class="save"><SaveStatus state={saveState} debut={saveDebut} /></div>
+    {/if}
+  </header>
 
+  <div class="surfaces" inert={comfort || undefined}>
     <SurfacesBar
       entries={OPEN_SURFACES}
       active={activeSurface}
@@ -106,11 +153,9 @@
       onnew={onnew ?? undefined}
       oncomfort={oncomfort ?? undefined}
     />
-  {:else}
-    <!-- شريط سحب النافذة يبقى: لا chrome نظام يُعاد رسمه، ولا نافذة
-         تصير غير قابلة للتحريك لأن المستخدم دخل وضع كتابة — §٧. -->
-    <div class="drag luma-chrome" data-tauri-drag-region></div>
+  </div>
 
+  {#if comfort}
     {#if saveState.kind === "failed"}
       <!-- **الفشل وحده يخترق المحرر المريح.** §٧ يخفي «المكتبة
            والقوائم والأدوات»، ولا يخفي أن نصّك لم يصل القرص: ذاك ليس
@@ -136,23 +181,31 @@
       <!-- اللوحة أولًا في الشجرة: هي عند بداية القراءة بصريًا، وهي
            التالية لمدخلها في ترتيب التركيز — فمن فتحها بلوحة المفاتيح
            يصلها بـTab واحدة. ولا حبس تركيز فيها — §١٠ **ثابت**. -->
-      <aside class="panel" aria-label={panelName}>{@render panel()}</aside>
+      <aside class="panel" aria-label={panelName} in:panelIn out:panelOut>
+        {@render panel()}
+      </aside>
     {/if}
 
     <div class="writing">
       {#if notice}<div class="notice">{@render notice()}</div>{/if}
-
-      {#if typewriterBand}
-        <!-- `نطاق الآلة الكاتبة` (`123:80`): شريط ثابت الموضع، والنص
-             هو الذي يتحرّك إليه. مؤشر عرض بحت لا يلتقط نقرًا. -->
-        <div class="band" aria-hidden="true"></div>
-      {/if}
 
       <div class="scroller" bind:this={scroller}>
         <div class="sheet">
           <div class="column" bind:this={host}></div>
         </div>
       </div>
+
+      {#if selectionBar}
+        <!-- **مكانٌ ثابت لا طوفٌ فوق التحديد.**
+             «تظهر أدوات التنسيق عند تحديد النص وتختفي عند استئناف
+             الكتابة، **بنمط ثابت** لا يجعل استعادتها غامضة» — §٥
+             **ثابت**. والمكان الواحد أوفى بذلك من موضعٍ يتنقّل مع كل
+             تحديد، ولا يحجب السطر الذي فوقه، ولا يزاحم نطاق الآلة
+             الكاتبة. ولا شريط دائم: الوعاء نفسه لا يُركَّب بلا تحديد. -->
+        <div class="selection-bar luma-chrome">
+          {@render selectionBar()}
+        </div>
+      {/if}
 
       {#if comfortBar}
         <div class="comfort-bar luma-chrome" class:hidden={zenHidden}>
@@ -182,7 +235,12 @@
      لأزرار النظام، والآخر لحالة الحفظ — وأيّهما أيّ يقرّره **موضع
      الأزرار الفعلي** لا اتجاه المحتوى (ADR ٠٠٠٣، والمتغيّران في
      `app.css`). في RTL العمود ١ هو الأيمن والعمود ٣ هو الأيسر. */
+  /* **الانتقال يُكتب على الحالة المقصودة لا على العنصر وحده:** فيتبع
+     المنحنى اتجاهَه — ease-out للعودة (ظهور) وease-in للدخول (خروج). */
   .titlebar {
+    transition:
+      background-color var(--motion-structural) var(--ease-enter),
+      border-color var(--motion-structural) var(--ease-enter);
     flex: none;
     display: grid;
     grid-template-columns:
@@ -279,6 +337,14 @@
     background: var(--surface-paper);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
+    /* الظل الخفيف من نظام الظلال (اللغة البصرية §٦): «لإشعار المستخدم
+       بالارتفاع دون إحداث فوضى بصرية» — FEEL-PLAN M0. */
+    box-shadow: var(--shadow-low);
+    transition:
+      background-color var(--motion-structural) var(--ease-enter),
+      border-color var(--motion-structural) var(--ease-enter),
+      border-radius var(--motion-structural) var(--ease-enter),
+      box-shadow var(--motion-structural) var(--ease-enter);
     /* النافذة الضيّقة: **يتقلّص عمود النص نحو ٥٢٠ قبل أن تتقلّص
        الورقة**. الحشوة تبقى عند حدّها ما دام العمود فوق أدناه، فإذا
        بلغه أعطت الحشوةُ لتُبقيه عنده، وبعدها فقط ينكمش كل شيء. */
@@ -300,7 +366,7 @@
   .count {
     position: absolute;
     inset-block-end: var(--space-016);
-    inset-inline-start: var(--space-020);
+    inset-inline-start: max(20px, calc((100% - min(100%, 880px)) / 2 + 20px));
     pointer-events: none;
   }
 
@@ -309,16 +375,49 @@
      والمؤشر ووسيلة الخروج» — `Luma.md` §٧ **ثابت**. */
 
   /* شريط سحب رفيع مكان شريط النافذة: النافذة تبقى قابلة للتحريك */
-  .drag {
+  /* شريط الأسطح ينطوي بارتفاعه — «٥٠٠ للتمدد والتحولات الهيكلية
+     الكبيرة لتفادي الارتجاج البصري»، §١١. */
+  .surfaces {
     flex: none;
-    block-size: var(--size-titlebar);
+    overflow: hidden;
+    block-size: var(--size-surfaces-bar);
+    transition:
+      block-size var(--motion-structural) var(--ease-enter),
+      opacity var(--motion-structural) var(--ease-enter);
+  }
+  .comfort .surfaces {
+    block-size: 0;
+    opacity: 0;
+    transition:
+      block-size var(--motion-structural) var(--ease-exit),
+      opacity var(--motion-structural) var(--ease-exit);
+  }
+
+  /* وفي الوضع المريح يصير شريط النافذة سطحَ سحبٍ لا أكثر */
+  .comfort .titlebar {
+    background-color: transparent;
+    border-block-end-color: transparent;
+    transition:
+      background-color var(--motion-structural) var(--ease-exit),
+      border-color var(--motion-structural) var(--ease-exit);
+  }
+  .title,
+  .save {
+    transition: opacity var(--motion-structural) var(--ease-enter);
+  }
+  .comfort .title,
+  .comfort .save {
+    opacity: 0;
+    transition: opacity var(--motion-structural) var(--ease-exit);
   }
 
   /* حالة الفشل داخل المحرر المريح — عند بداية القراءة، مقابل وسيلة
      الخروج، فلا يتزاحمان. */
   .fail {
     position: absolute;
-    inset-block-start: var(--space-024);
+    /* متمركز في شريط السحب ٤٨: بـ`--space-024` كان يشغل ٢٤–٥٢ فيقطع
+       الشريط ويحجب زاويته عن سحب النافذة. */
+    inset-block-start: calc((var(--size-titlebar) - var(--size-btn-sm)) / 2);
     inset-inline-start: var(--space-024);
     z-index: 2;
   }
@@ -326,52 +425,77 @@
   /* لا ورقة في المحرر المريح: النص على السطح مباشرةً كما في الصفحة ١١.
      البطاقة إطارٌ للقراءة، والمحرر المريح يزيل الإطارات. */
   .comfort .sheet {
-    background: none;
-    border: none;
+    /* **تذوب ولا تُستبدل**: الحدّ يبقى بعرضه ويفقد لونه، فلا يتغيّر
+       التخطيط بمقدار بكسلين وسط الحركة. */
+    background-color: transparent;
+    border-color: transparent;
     border-radius: 0;
+    /* والظل كذلك: ورقة أخفت خلفيتها وأبقت ظلها ترسم حافتين شبحيتين */
+    box-shadow: none;
+    transition:
+      background-color var(--motion-structural) var(--ease-exit),
+      border-color var(--motion-structural) var(--ease-exit),
+      border-radius var(--motion-structural) var(--ease-exit),
+      box-shadow var(--motion-structural) var(--ease-exit);
     /* حشوة تكفي ليبلغ السطر الأول والأخير نطاق الآلة الكاتبة — §٧.
-       القيمتان بالنسبة إلى ارتفاع النافذة لا بمقدار ثابت، فتصحّان
-       على كل ارتفاع. المرساة ٤٥٫٥٪ كما في `src/lib/typewriter.ts`. */
-    padding-block: 45.5vh 54.5vh;
+       تُحسب في `App.svelte` من ارتفاع **المساحة** لا من ارتفاع
+       النافذة: `vh` يشمل شريط السحب ٤٨px والمساحةُ لا تشمله، وفارقُ
+       المرجعين قِيس نحو ٢٢px فكان سطر بداية المستند يقف خارج شريطه.
+       والقيمتان الاحتياطيتان لما قبل أول حساب. */
+    padding-block: var(--comfort-pad-top) var(--comfort-pad-bottom);
   }
 
+  /* نطاق الآلة الكاتبة: شريط ثابت يستقرّ عنده السطر النشط */
+  /* **لا مستطيل خلف السطر النشط.**
+     كان نطاق الآلة الكاتبة يُرسم سطحًا بحدّين: في «ليل» شريطٌ فاتح
+     يقطع النص فيُتعب العين، وفي النهاري لوحٌ باهت يزاحم الحبر. وموضع
+     السطر يُحَسّ بسكونه لا بإطارٍ حوله — والفرق بين الجملة النشطة وما
+     حولها صار في الحبر وحده. وبزواله زال تناقضٌ آخر: الشريط المرسوم
+     ٣٦px بينما نطاق السكون خُمس الارتفاع، فكان السطر يستقرّ خارج
+     شريطه وهو داخل نطاقه. */
   .comfort .scroller {
     padding-block: 0;
   }
 
-  /* نطاق الآلة الكاتبة: شريط ثابت يستقرّ عنده السطر النشط */
-  .band {
-    position: absolute;
-    inset-inline: 0;
-    inset-block-start: 45.5%;
-    /* ارتفاع سطر واحد من نص القراءة */
-    block-size: calc(var(--luma-editor-size) * var(--luma-editor-leading));
-    transform: translateY(-50%);
-    background: var(--surface-paper);
-    pointer-events: none;
-    z-index: 0;
-  }
-
-  /* الشريط خلف النص لا فوقه */
-  .comfort .scroller {
-    position: relative;
-    z-index: 1;
-  }
-
   .exit {
     position: absolute;
-    inset-block-start: var(--space-024);
+    /* الشرح عند `.fail` — والزاوية المقابلة تبقى للسحب */
+    inset-block-start: calc((var(--size-titlebar) - var(--size-btn-sm)) / 2);
     inset-inline-end: var(--space-024);
     z-index: 2;
-    transition: opacity 200ms ease;
+    transition: opacity var(--motion-quick) ease;
   }
   /* Zen يخفيها بصريًا، والتركيز عليها يعيدها فورًا: من وصلها
      بلوحة المفاتيح يراها */
   .exit.hidden {
     opacity: 0;
+    /* لا يلتقط نقرًا وهو غير مرئي: النقر بلا حركة مؤشر (لوحة اللمس)
+       كان يُنهي الوضع من عنصرٍ لا يراه صاحبه. */
+    pointer-events: none;
   }
   .exit:focus-within {
     opacity: 1;
+  }
+
+  /* شريط التحديد: أسفل المساحة ومتمركز — الموضع نفسه في الوضعين */
+  .selection-bar {
+    position: absolute;
+    inset-block-end: var(--space-024);
+    inset-inline: 0;
+    z-index: 3;
+    display: flex;
+    justify-content: center;
+    pointer-events: none;
+  }
+  .selection-bar :global(*) {
+    pointer-events: auto;
+  }
+  /* في المحرر المريح يعلو رقاقات الطبقات ولا يزاحمها: كلاهما أسفل
+     المساحة، وإخفاء أحدهما لأجل الآخر يجعل استعادته غامضة — §٥. */
+  .comfort .selection-bar {
+    inset-block-end: calc(
+      var(--space-024) + var(--size-btn-sm) + var(--space-012)
+    );
   }
 
   /* شريط الطبقات ووسيلة الخروج — يتراجعان مع Zen ويعودان */
@@ -386,7 +510,7 @@
     justify-content: center;
     gap: var(--space-008);
     pointer-events: none;
-    transition: opacity 200ms ease;
+    transition: opacity var(--motion-quick) ease;
   }
   .comfort-bar :global(*) {
     pointer-events: auto;
@@ -395,13 +519,21 @@
   .comfort-bar.hidden {
     opacity: 0;
   }
+  .comfort-bar.hidden :global(*) {
+    pointer-events: none;
+  }
   .comfort-bar.hidden:focus-within {
     opacity: 1;
   }
 
   @media (prefers-reduced-motion: reduce) {
     .comfort-bar,
-    .exit {
+    .exit,
+    .titlebar,
+    .surfaces,
+    .title,
+    .save,
+    .sheet {
       transition: none;
     }
   }

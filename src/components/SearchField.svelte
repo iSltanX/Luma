@@ -62,7 +62,7 @@
     background: var(--surface-sunken);
     border: 1px solid var(--border-control);
     border-radius: var(--radius-sm);
-    transition: border-color 120ms ease;
+    transition: border-color var(--motion-quick) ease;
   }
   /* حلقة التركيز على الحاوية لأن الحدّ عليها — والحقل بلا حدّ خاص به */
   .field:focus-within {

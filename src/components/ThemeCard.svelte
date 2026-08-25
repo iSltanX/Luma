@@ -44,6 +44,8 @@
     background: var(--surface-paper);
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-md);
+    /* الظل الخفيف — «للبطاقات» (§٦) */
+    box-shadow: var(--shadow-low);
     cursor: pointer; text-align: start;
   }
   /* الصف المحدد = accent-subtle + accent-text — §٩ */

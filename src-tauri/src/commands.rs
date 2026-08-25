@@ -211,6 +211,7 @@ pub fn seed_library(
                 id: format!("b-{i}"),
                 role: "body".into(),
                 text: body.clone(),
+                marks: Vec::new(),
             }],
             created_at: now,
             updated_at: now - i as i64,
@@ -334,8 +335,16 @@ pub fn list_fonts(storage: State<'_, Storage>) -> Vec<FontReference> {
 ///
 /// اللوحة أصلية لا مرسومة — §١ **ثابت**: «ما يجب أن يأتي من المنصة».
 /// `None` تعني أن المستخدم ألغى، وهي ليست خطأ.
+///
+/// **`async` هنا ليست زينة: بدونها يتجمّد التطبيق.** الأمر المتزامن
+/// يعمل على الخيط الرئيسي، و`blocking_pick_file` يحجب خيطه حتى تُغلق
+/// اللوحة — واللوحة الأصلية لا تُعرض ولا تستجيب إلا من حلقة الخيط
+/// الرئيسي نفسها. فحجبه انتظارًا لها يمنعها من العمل: تجمّدٌ لا مخرج
+/// منه إلا إنهاء التطبيق. وثيقة المكتبة صريحة: «عملية حاجبة، **لا**
+/// تُستعمل على الخيط الرئيسي»، وكل أمثلتها `async fn`. والأمر
+/// اللاتزامني يعمل خارج الخيط الرئيسي، فينتظر بلا أن يحجب.
 #[tauri::command]
-pub fn pick_and_import_font(
+pub async fn pick_and_import_font(
     app: tauri::AppHandle,
     storage: State<'_, Storage>,
 ) -> Result<Option<FontReference>, String> {
@@ -357,4 +366,43 @@ pub fn pick_and_import_font(
     fonts::import(&storage.root, &path)
         .map(Some)
         .map_err(|e| e.to_string())
+}
+
+#[cfg(test)]
+mod guards {
+    /// **حارس تجمّد.**
+    ///
+    /// أمرٌ متزامن يعمل على الخيط الرئيسي، فاستدعاء `blocking_*` فيه
+    /// يحجب الحلقة التي تُعرض بها اللوحة الأصلية — تجمّدٌ لا مخرج منه
+    /// إلا إنهاء التطبيق. وقع فعلًا في `pick_and_import_font`: فُتحت
+    /// لوحة الملفات فتوقّف كل شيء.
+    ///
+    /// والقاعدة لا يحرسها المترجم: `pub fn` و`pub async fn` كلتاهما
+    /// تُصرَّفان، والفرق يظهر عند المستخدم لا عند البناء.
+    #[test]
+    fn no_blocking_call_inside_a_sync_command() {
+        let src = include_str!("commands.rs");
+        // التعليقات تُطرح أولًا: شرحُ القاعدة يذكرها، وذِكرها فوق
+        // الأمر يقع في كتلة الأمر الذي قبله فيتّهمه بريئًا. ويُقطع
+        // المصدر عند وحدة الاختبار فلا يفحص الحارسُ نفسَه.
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let code: String = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let offenders: Vec<&str> = code
+            .split("#[tauri::command]")
+            .skip(1)
+            .filter(|chunk| chunk.contains("blocking_"))
+            .filter(|chunk| !chunk.trim_start().starts_with("pub async fn"))
+            .map(|chunk| chunk.trim_start().lines().next().unwrap_or("?"))
+            .collect();
+
+        assert!(
+            offenders.is_empty(),
+            "أمر متزامن يستدعي blocking_ — يتجمّد على الخيط الرئيسي: {offenders:?}"
+        );
+    }
 }

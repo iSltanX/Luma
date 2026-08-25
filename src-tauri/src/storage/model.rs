@@ -14,9 +14,25 @@ pub const SCHEMA_VERSION: u32 = 1;
 #[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
 pub struct Block {
     pub id: String,
-    /// `body` أو `h1` أو `h2` — `Luma.md` §٥.
+    /// دور الكتلة — `Luma.md` §٥. سلسلة لا تعداد: **مستندٌ فيه دورٌ لا
+    /// تعرفه هذه النسخة يُقرأ ولا يُرفض**، ونصّه لا يضيع.
     pub role: String,
     pub text: String,
+    /// علامات داخل السطر — الوزن اليوم. `default` لأن مستندات ما قبلها
+    /// بلا حقل، وقراءتها يجب أن تبقى ممكنة بلا هجرة ولا رفع إصدار.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub marks: Vec<InlineMark>,
+}
+
+/// علامة داخل السطر بإزاحات في نصّ الكتلة نفسه.
+#[derive(Debug, Clone, Serialize, Deserialize, PartialEq)]
+#[serde(rename_all = "camelCase")]
+pub struct InlineMark {
+    /// `type` كلمة محجوزة في Rust، والاسم في الملف يبقى كما هو.
+    #[serde(rename = "type")]
+    pub kind: String,
+    pub from: usize,
+    pub to: usize,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -174,6 +190,7 @@ mod tests {
                 .map(|(i, t)| Block {
                     id: format!("b{i}"),
                     role: "body".into(),
+                    marks: Vec::new(),
                     text: (*t).into(),
                 })
                 .collect(),

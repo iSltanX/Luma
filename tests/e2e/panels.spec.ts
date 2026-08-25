@@ -86,6 +86,18 @@ test("عمود اللوحة ٣٢٠ ويعيد تمركز الورقة فيما �
     Math.round(document.querySelector(".sheet")!.getBoundingClientRect().left),
   );
   await page.click(LIBRARY);
+  // دخول اللوحة صار حركة ٣٠٠ms (اللغة البصرية §١١ — FEEL-PLAN M0)،
+  // فالمواضع تُقاس بعد استقرارها لا لحظة النقر.
+  await expect
+    .poll(() =>
+      page.evaluate(() => {
+        const p = document
+          .querySelector('[data-panel="library"]')!
+          .getBoundingClientRect();
+        return Math.round(window.innerWidth - p.right);
+      }),
+    )
+    .toBe(0);
   const m = await page.evaluate(() => {
     const panel = document.querySelector('[data-panel="library"]')!;
     const p = panel.getBoundingClientRect();
@@ -219,23 +231,30 @@ test("شريط التحديد يظهر مع التحديد ويختفي عند �
   await selectWord(page);
   await expect(page.locator("[data-selection-toolbar]")).toBeVisible();
 
-  // الشريط فوق التحديد لا فوقه بالمعنى الحرفي: لا يغطّيه
-  const gap = await page.evaluate(() => {
+  // **مكانٌ ثابت أسفل المساحة لا طوفٌ فوق التحديد** — FEEL-PLAN M5.
+  // «بنمط ثابت لا يجعل استعادتها غامضة» (§٥): الموضع واحد مهما كان
+  // التحديد، ومتمركز على عمود الكتابة، ولا يحجب سطرًا فوقه.
+  const placed = await page.evaluate(() => {
     const bar = document
       .querySelector("[data-selection-toolbar]")!
       .getBoundingClientRect();
-    const sel = getSelection()!.getRangeAt(0).getBoundingClientRect();
-    return Math.round(sel.top - bar.bottom);
+    const writing = document.querySelector(".writing")!.getBoundingClientRect();
+    return {
+      fromBottom: Math.round(writing.bottom - bar.bottom),
+      offCenter: Math.round(
+        bar.left + bar.width / 2 - (writing.left + writing.width / 2),
+      ),
+    };
   });
-  expect(gap).toBeGreaterThanOrEqual(0);
+  expect(placed.fromBottom, "مرساةٌ أسفل المساحة").toBeGreaterThan(0);
+  expect(placed.fromBottom).toBeLessThan(80);
+  expect(Math.abs(placed.offCenter), "متمركز على عمود الكتابة").toBeLessThanOrEqual(1);
 
   await page.keyboard.type("س", { delay: 0 });
   await expect(page.locator("[data-selection-toolbar]")).toHaveCount(0);
 });
 
-test("المجموعة المعتمدة ثلاثة أدوار وعلامة اقتباس — لا أكثر", async ({
-  page,
-}) => {
+test("المجموعة المعتمدة — لا زرّ خارجها", async ({ page }) => {
   await page.goto("/");
   await page.waitForSelector(EDITOR);
   await page.locator(EDITOR).click();
@@ -247,8 +266,9 @@ test("المجموعة المعتمدة ثلاثة أدوار وعلامة اق�
       b.textContent!.trim(),
     ),
   );
-  // لا مائل ولا غامق ولا H3 ولا قائمة — `Luma.md` §٥
-  expect(labels).toEqual(["عادي", "H1", "H2", "«»"]);
+  // أربعة أدوار، واقتباس كتلة (أيقونة بلا نص)، ووزن، وعلامة اقتباس.
+  // **ولا مائل ولا قائمة** — الأول تمنعه العربية، والثانية لم تُعتمد.
+  expect(labels).toEqual(["عادي", "H1", "H2", "H3", "", "ب", "«»"]);
 });
 
 test("تحويل الدور بالفأرة وبلوحة المفاتيح", async ({ page }) => {

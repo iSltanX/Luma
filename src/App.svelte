@@ -17,9 +17,12 @@
   import Alert from "./components/Alert.svelte";
   import { isolate, sinceLabel } from "./lib/bidi";
   import { preferences } from "./lib/preferences.svelte";
-  import { typewriterScroll } from "./lib/typewriter";
+  import { comfortPadding, typewriterScroll } from "./lib/typewriter";
   import type { FontReference } from "./lib/fonts";
   import { declareImportedFonts } from "./lib/font-faces";
+  import { span, surfaceIn, surfaceOut } from "./lib/transitions";
+  import { MOTION } from "./tokens/motion";
+  import { editingReaches } from "./lib/menu";
   import type { SettingsSectionId } from "./lib/settings";
   import type {
     DocumentCard,
@@ -40,6 +43,38 @@
   let count = $state(0);
   let title = $state("بدون عنوان");
   let saveState = $state<SaveState>({ kind: "idle" });
+
+  // ── الظهور الأول لمستند جديد — FEEL-PLAN M0 (ج) ────────────
+  // «بمجرد أول محتوى ينشأ المستند ويبدأ الحفظ ويظهر في المكتبة»
+  // (`Luma.md` §٤) — ثلاث حقائق كانت تقع كلها خلف الكواليس. أول
+  // «محفوظ» لمستند وُلد في هذه الجلسة يُرى بكامل حضوره لحظتين ثم
+  // يخفت إلى حالته الدائمة. مرة واحدة لكل مستند، ولا شيء لمستند
+  // مستأنف أو مفتوح من المكتبة.
+  let saveDebut = $state(false);
+  /** الوضع المريح كان قائمًا قبل فتح الإعدادات، فيُستأنف بعدها. */
+  let comfortResume = false;
+  /** يُبطل استقرارًا مؤجَّلًا لدخولٍ سبقه خروج. */
+  let comfortGeneration = 0;
+  /** مستندات وُلدت هنا بأول محتوى — لا المستأنفة ولا المفتوحة. */
+  const bornIds = new Set<string>();
+  /** ما عُرض له الظهور الأول — فلا يتكرر مع كل حفظة تالية. */
+  const debutedIds = new Set<string>();
+  let debutTimer: ReturnType<typeof setTimeout> | undefined;
+
+  /** هل يصل فعل التحرير إلى النص الذي يراه صاحبه؟ — `lib/menu.ts`. */
+  function editingReachable(): boolean {
+    return editingReaches({ settings, fontSheet, preview: previewId !== null });
+  }
+
+  function maybeDebut(s: SaveState) {
+    if (s.kind !== "saved") return;
+    const id = session?.currentId;
+    if (!id || !bornIds.has(id) || debutedIds.has(id)) return;
+    debutedIds.add(id);
+    saveDebut = true;
+    clearTimeout(debutTimer);
+    debutTimer = setTimeout(() => (saveDebut = false), 2000);
+  }
 
   // ── حالة الأسطح ────────────────────────────────────────────
   // **لوحة واحدة مفتوحة في كل وقت** — §١٠: «فتح لوحة يضيف عمودًا».
@@ -72,8 +107,12 @@
   }
 
   // ── شريط التحديد ───────────────────────────────────────────
-  let selection = $state<{ top: number; left: number } | null>(null);
+  /** يوجد تحديدٌ قابل للتنسيق — والموضع لم يعد يعني شيئًا: الشريط
+   *  يرسو أسفل المساحة لا فوق التحديد (`FEEL-PLAN` M5). */
+  let selection = $state(false);
   let role = $state<BlockRole | null>(null);
+  /** التحديد كلّه موزون — حالة زرّ الوزن في الشريط. */
+  let strong = $state(false);
 
   // ── المحرر المريح والإعدادات ───────────────────────────────
   const prefs = $derived(preferences.value);
@@ -141,6 +180,9 @@
   /** يطبّق طبقتَي المحرر المريح على النواة. */
   function syncLayers() {
     editor.setFocusMode(comfort && prefs.focusEnabled);
+    // تفعيل الآلة الكاتبة يُظهر نطاقها — والسطر النشط يجب أن يبلغه
+    // الآن، لا أن يبقى مكانه حتى أول ضغطة تالية.
+    if (comfort && prefs.typewriterEnabled) centerWhenReady();
     if (countIsVisible) recount(session?.contents ?? []);
   }
 
@@ -166,7 +208,10 @@
     onChange: (blocks) => {
       if (countIsVisible) recount(blocks);
       session?.handleChange(blocks);
-      currentId = session?.currentId ?? null;
+      const id = session?.currentId ?? null;
+      // ميلاد مستند: كان المعرّف فارغًا فولّده أول محتوى — FEEL-PLAN M0
+      if (id !== null && currentId === null) bornIds.add(id);
+      currentId = id;
       if (comfort && prefs.zenEnabled) zenRecede();
     },
     // التحديد يقرّر ظهور الشريط: نصٌّ محدَّد يُظهره، وأول حرف يُكتب
@@ -217,6 +262,33 @@
   }
 
   /** Zen: تتراجع العناصر مع الكتابة، وتعود بحركة المؤشر أو بالتركيز. */
+  /**
+   * أول تمركز بعد تغيّرٍ في التخطيط — **يعاود حتى يصير للمؤشر مستطيل**.
+   *
+   * استعادة التركيز تُزامن تحديد DOM في إطارٍ لاحق أحيانًا، فيقع
+   * القياس على مؤشرٍ بلا مستطيل ويُهمَل التمركز صامتًا: قِيس فدخل
+   * الوضعُ والسطرُ النشط في أسفل النافذة بدل نطاقه.
+   */
+  /** مرساة السطر النشط — المصدر نفسه الذي يقيس عليه `lib/typewriter.ts`. */
+  const COMFORT_ANCHOR = 0.455;
+
+  function centerWhenReady(frames = 6) {
+    requestAnimationFrame(() => {
+      if (!comfort) return;
+      if (editor.caretRect() !== null || frames <= 0) {
+        runTypewriter();
+        return;
+      }
+      centerWhenReady(frames - 1);
+    });
+  }
+
+  function onResize() {
+    if (!comfort) return;
+    applyComfortPadding();
+    centerWhenReady();
+  }
+
   function zenRecede() {
     zenHidden = true;
   }
@@ -226,17 +298,135 @@
     zenHidden = false;
   }
 
-  function enterComfort() {
+  /**
+   * حشوة الوضع تُحسب من ارتفاع المساحة لا من ارتفاع النافذة.
+   *
+   * كانت `45.5vh` في CSS والنطاقُ `45.5%` من مساحة الكتابة —
+   * ومرجعاهما مختلفان: `vh` يشمل شريط السحب ٤٨px والمساحةُ لا تشمله.
+   * فارقٌ قِيس نحو ٢٢px يترك سطر بداية المستند **خارج شريطه كاملًا**
+   * ولا يصحّحه أحد لأنه يقع داخل نطاق السكون. والمصدر الآن واحد:
+   * `comfortPadding` في `lib/typewriter.ts` — وكانت مكتوبة ومهجورة.
+   */
+  function applyComfortPadding() {
+    const sc = scrollerEl;
+    if (!sc) return;
+    // الصندوق الخارجي: لا يتغيّر بتغيّر الحشوة نفسها فلا يدور القياس
+    const pad = comfortPadding(sc.getBoundingClientRect().height);
+    const root = document.documentElement;
+    root.style.setProperty("--comfort-pad-top", `${pad.top}px`);
+    root.style.setProperty("--comfort-pad-bottom", `${pad.bottom}px`);
+  }
+
+  /**
+   * تشغيل الغلاف نفسه — بلا لمس الشاشات فوقه.
+   *
+   * يستدعيه الدخول المباشر، والعودةُ من الإعدادات إلى الوضع الذي كان.
+   */
+  /**
+   * يُطبَّق تغيّرٌ في التخطيط **والسطر النشط لا يتزحزح على الشاشة**.
+   *
+   * حشوة الوضع المريح تقارب نصف ارتفاع النافذة، فتغيّرها يقذف النص
+   * مئات البكسلات دفعةً واحدة. والتعويض في التمرير يجعل التغيير
+   * **غير مرئي**، فلا يبقى مما يراه المستخدم إلا الانسياب المقصود.
+   */
+  /**
+   * مرساة الثبات: **أعلى كتلة النص لا مستطيل المؤشر**.
+   *
+   * المؤشر مرساةٌ تغيب: مستطيله يعود فارغًا حين تكون مرساة تحديد DOM
+   * عنصرًا لا نصًّا — قِيس، فسقط التعويض صامتًا وقفز النص ٢٤٥px. وكتلة
+   * النص مستطيلها موجود دائمًا، وإزاحتها هي عين ما تغيّره الحشوة.
+   */
+  function textTop(): number | null {
+    return hostEl ? hostEl.getBoundingClientRect().top : null;
+  }
+
+  async function keepTextStill(apply: () => void) {
+    const before = textTop();
+    apply();
+    await tick();
+    const after = textTop();
+    const sc = scrollerEl;
+    if (sc && before !== null && after !== null) {
+      sc.scrollTop = Math.max(0, Math.round(sc.scrollTop + (after - before)));
+    }
+  }
+
+  async function activateComfort() {
+    comfortGeneration += 1;
+    await keepTextStill(() => {
+      comfort = true;
+      // لا يبدأ الوضع بشرائط أخفاها Zen في جلسة سابقة
+      zenHidden = false;
+      editor.setFocusMode(prefs.focusEnabled);
+    });
+    await keepTextStill(applyComfortPadding);
+    editor.focus();
+    // ينساب النص إلى مرساته **مع** انفتاح الإطار لا بعده — `glideToAnchor`.
+    glideToAnchor(span(MOTION.structural));
+  }
+
+  /**
+   * انسيابٌ **يتتبّع التخطيط ولا يتنبّأ به**.
+   *
+   * المشهد حركتان متزامنتان: الإطار ينفتح في ٥٠٠ms فتكبر مساحة الكتابة
+   * وتتحرّك مرساتها، والنص ينساب إلى تلك المرساة. وكان التمركز يُؤجَّل
+   * حتى يستقرّ الانفتاح — فتبدو حركتين وفجوةً بينهما، وهو ما يُحَسّ
+   * تلعثمًا.
+   *
+   * والتنبّؤ بالتخطيط النهائي حلٌّ هشّ: يعتمد على معرفةٍ مسبقة بما
+   * سينطوي وبكم. فيُعاد الحساب **في كل إطار** بدله: يُقاس المطلوب من
+   * التخطيط كما هو الآن، ويُقطع جزءٌ من المسافة إليه. والنسبة الثابتة
+   * تعطي منحنًى يخفّ من تلقائه — وهو عين `ease-out` — ويتقارب مع
+   * التخطيط لا ضدّه، فلا يحتاج أن يعرف عنه شيئًا.
+   */
+  function glideToAnchor(duration: number) {
+    const sc = scrollerEl;
+    if (!sc) return;
+    if (duration <= 0) {
+      centerWhenReady();
+      return;
+    }
+    const started = performance.now();
+    // **الذيل يتجاوز مدّة الانفتاح.** المتتبِّع يلاحق هدفًا يتحرّك
+    // طوال الحركة، فيتخلّف عنه بمقدار إزاحتها كاملة — قِيس ٤٤px، وهو
+    // عين ارتفاع الشريط المنطوي. وحين يسكن الهدف يقاربه المتتبِّع
+    // أُسّيًّا فتذوب البقيّة في أجزاء من الثانية: حركةٌ واحدة تنتهي
+    // هادئة، لا قفزةٌ تصحيحية في آخرها.
+    const deadline = duration * 2;
+    const step = () => {
+      if (!comfort) return;
+      const caret = editor.caretRect();
+      let rest = 0;
+      if (caret) {
+        const box = sc.getBoundingClientRect();
+        const middle = caret.top + caret.height / 2;
+        const anchor = box.top + box.height * COMFORT_ANCHOR;
+        rest = sc.scrollTop + (middle - anchor) - sc.scrollTop;
+        sc.scrollTop = sc.scrollTop + rest * 0.25;
+      }
+      const elapsed = performance.now() - started;
+      // يتوقّف حين يبلغ مرساته، لا حين تنتهي مهلة
+      if (elapsed > duration && Math.abs(rest) < 0.5) return;
+      if (elapsed < deadline) requestAnimationFrame(step);
+    };
+    requestAnimationFrame(step);
+  }
+
+
+  async function enterComfort() {
     if (comfort) return;
     // إغلاق ما يزاحم: «تختفي المكتبة والقوائم والأدوات» §٧
     exitPreview();
     surface = null;
-    settings = false;
-    comfort = true;
-    editor.setFocusMode(prefs.focusEnabled);
-    editor.focus();
-    // أول تمركز بعد أن يتّسع التخطيط ويُعاد حساب الحشوة
-    requestAnimationFrame(() => runTypewriter());
+    // **الإعدادات تُغلق بمسارها لا بسطر.** كان `settings = false`
+    // وحده يترك ما رفعه فتحُها: `setEditable(false)` قائمًا و`inert`
+    // على الإطار — فيفتح ⌃⌘F محررًا مريحًا **لا يقبل حرفًا ولا مؤشر
+    // فيه**. قِيس: `contenteditable="false"` والكتابة لا تصل.
+    if (settings || fontSheet) {
+      comfortResume = false;
+      await closeSettings();
+    }
+    await activateComfort();
   }
 
   /**
@@ -245,29 +435,36 @@
    * لا يُلمس المحتوى ولا التحديد: تُطفأ طبقة التركيز (وهي عرض بحت)
    * ويعود الإطار بأشرطته.
    */
-  function exitComfort() {
+  async function exitComfort() {
     if (!comfort) return;
-    comfort = false;
-    zenHidden = false;
-    editor.setFocusMode(false);
+    comfortGeneration += 1;
+    // **الخروج لا يقفز.** حشوة الوضع تنطوي دفعةً واحدة فينتقل السطر
+    // النشط — قِيس ٢٥١px، وعلى مستند قصير يعود التمرير إلى الصفر.
+    // «الخروج لا يغيّر موضع المؤشر» صحيحٌ في النص، وهذا يجعله صحيحًا
+    // في العين أيضًا. والأشرطة تعود في ٥٠٠ms من حولها.
+    await keepTextStill(() => {
+      comfort = false;
+      zenHidden = false;
+      editor.setFocusMode(false);
+    });
     editor.focus();
   }
 
   function toggleComfort() {
-    if (comfort) exitComfort();
-    else enterComfort();
+    if (comfort) void exitComfort();
+    else void enterComfort();
   }
 
   function syncSelection() {
-    const rect = editor.selectionRect();
-    if (!rect || !editor.isEditable) {
-      selection = null;
+    if (!editor.selectionRect() || !editor.isEditable) {
+      selection = false;
       role = null;
+      strong = false;
       return;
     }
     role = editor.currentRole();
-    // إحداثيات النافذة: الشريط ثابت الموضع فلا يزيحه تمرير الورقة أفقيًا
-    selection = { top: rect.top, left: rect.left + rect.width / 2 };
+    strong = editor.isStrong;
+    selection = true;
   }
 
   // ── الأسطح ─────────────────────────────────────────────────
@@ -398,7 +595,7 @@
       previewAt = rev.createdAt;
       editor.setBlocks(rev.blocks);
       editor.setEditable(false);
-      selection = null;
+      selection = false;
       problem = null;
     } catch (e) {
       // «تعذُّر قراءة نسخة قديمة لا يؤثر في المستند الحالي» — §٩.
@@ -497,6 +694,9 @@
   async function openSettings() {
     exitPreview();
     surface = null;
+    // الإعدادات تعلو الوضع ولا تُنهيه: من فتحها ليكبّر خطًّا يعود إلى
+    // ما كان فيه، ولا يخسر تركيزه لأنه غيّر إعدادًا.
+    comfortResume = comfort;
     comfort = false;
     editor.setFocusMode(false);
     settings = true;
@@ -526,6 +726,11 @@
     await tick();
     // المعاينة تنتهي عند فتح الإعدادات، فالعودة دائمًا إلى قابل للتحرير
     editor.setEditable(true);
+    if (comfortResume) {
+      comfortResume = false;
+      await activateComfort();
+      return;
+    }
     editor.focus();
   }
 
@@ -596,6 +801,10 @@
     cleanups.push(() => window.removeEventListener("keydown", onKeydown));
     window.addEventListener("pointermove", onPointerMove, { passive: true });
     cleanups.push(() => window.removeEventListener("pointermove", onPointerMove));
+    // تغيير حجم النافذة ينقل النطاق ويعيد حساب الحشوة، ولا شيء كان
+    // يتبعه: يبقى النص مكانه حتى أول ضغطة.
+    window.addEventListener("resize", onResize);
+    cleanups.push(() => window.removeEventListener("resize", onResize));
 
     // خارج `Luma.app` — على خادم التطوير — يعمل المحرر بلا تخزين.
     //
@@ -613,6 +822,84 @@
     invoke = core.invoke;
     const call = core.invoke;
     toAssetUrl = core.convertFileSrc;
+
+    // ── الجلسة والمستمعون **قبل كل عمل مؤجَّل** ─────────────────
+    //
+    // كانا بعد التفضيلات والخطوط، وبينهما `await refreshFonts()` الذي
+    // يمسح خطوط النظام. والنافذة ظاهرة طوال ذلك، فما يُكتب فيها لا
+    // جلسةَ تعرفه، وطلبُ إغلاق يقع فيها لا مستمعَ له — والحدث لا
+    // يُخزَّن لمن يتأخر. أُقيمت نقطة الاستقبال أولًا: لا شيء هنا يقرأ
+    // قرصًا ولا ينتظر شبكة، فلا يؤخّر مؤشرًا.
+    session = new EditorSession({
+      editor,
+      bridge: {
+        save: (p) => call("save_document", { payload: p }),
+        load: (id) => call("load_document", { id }),
+        mostRecent: () => call("most_recent_document"),
+      },
+      onSaveState: (s) => {
+        saveState = s;
+        maybeDebut(s);
+      },
+      onTitleChange: (t) => (title = t),
+    });
+
+    try {
+      const { listen } = await import("@tauri-apps/api/event");
+
+      cleanups.push(
+        await listen<string>("luma://menu", (e) => {
+          // **التراجع لا يمسّ نصًّا لا يراه صاحبه.** بند «تراجع» في
+          // قائمة النظام مفعَّل دائمًا، و`inert` يحجب الشجرة لا أحداث
+          // النواة — فكان ⌘Z أمام الإعدادات يمحو في المستند المحجوب
+          // (و⌘Z أشيع ما يُضغط بعد تغيير إعداد)، ثم يثبّت الحفظُ
+          // التلقائي المحوَ على القرص. والمعاينة قراءةٌ فقط كذلك.
+          if (e.payload === "undo" || e.payload === "redo") {
+            if (!editingReachable()) return;
+            if (e.payload === "undo") editor.undo();
+            else editor.redo();
+          } else if (e.payload === "settings") void openSettings();
+        }),
+      );
+
+      // فقد التركيز محفّز كتابة فورية — §٥
+      cleanups.push(await listen("luma://flush", () => void session?.flush()));
+
+      // الإغلاق مؤجَّل: تُكتب آخر دفقة ثم يُغلق فعلًا
+      cleanups.push(
+        await listen("luma://flush-and-close", async () => {
+          preferences.flush();
+          // **فرصة استرجاع صريحة عند الإغلاق** — §٥ **ثابت**.
+          // النافذة لا تُهدم على تغيير لم يصل القرص: يبقى النص في
+          // الذاكرة، وتظهر الحالة والسبب، وإعادة المحاولة مستمرة.
+          const saved = (await session?.flush()) ?? true;
+          if (!saved) {
+            fail(
+              "لم يُغلَق Luma: نصّك لم يصل القرص بعد",
+              "نصّك محفوظ في الذاكرة والمحاولة مستمرة. أفرغ مساحة على القرص أو تحقّق من الأذونات، ثم أغلق مرة أخرى.",
+            );
+            // المزلاج في النواة يُفتح، وإلا مرّت المحاولة التالية بلا
+            // حفظ أصلًا فأُغلق التطبيق على النص نفسه الذي رفضنا فقده.
+            await call("close_declined");
+            return;
+          }
+          try {
+            const { getCurrentWindow } = await import("@tauri-apps/api/window");
+            await getCurrentWindow().destroy();
+          } catch (e) {
+            // تعذّر الهدم بعد حفظٍ ناجح: يُفتح المزلاج وإلا مرّت
+            // المحاولة التالية بلا حفظ.
+            console.error("[luma] تعذّر هدم النافذة:", e);
+            await call("close_declined");
+          }
+        }),
+      );
+
+      // **الآن فقط** تعلم النواة أن ثمّة من يستقبل طلب الإغلاق.
+      await call("ui_ready");
+    } catch (e) {
+      console.error("[luma] تعذّر ربط أحداث النواة:", e);
+    }
 
     // المرساة أول ما يتاح الجسر: قبلها لا سبيل إلى ساعة النواة
     try {
@@ -667,56 +954,7 @@
     await refreshFonts();
     marks["fonts"] = performance.now();
 
-    session = new EditorSession({
-      editor,
-      bridge: {
-        save: (p) => call("save_document", { payload: p }),
-        load: (id) => call("load_document", { id }),
-        mostRecent: () => call("most_recent_document"),
-      },
-      onSaveState: (s) => (saveState = s),
-      onTitleChange: (t) => (title = t),
-    });
-
-    try {
-      const { listen } = await import("@tauri-apps/api/event");
-
-      cleanups.push(
-        await listen<string>("luma://menu", (e) => {
-          if (e.payload === "undo") editor.undo();
-          else if (e.payload === "redo") editor.redo();
-          else if (e.payload === "settings") void openSettings();
-        }),
-      );
-
-      // فقد التركيز محفّز كتابة فورية — §٥
-      cleanups.push(await listen("luma://flush", () => void session?.flush()));
-
-      // الإغلاق مؤجَّل: تُكتب آخر دفقة ثم يُغلق فعلًا
-      cleanups.push(
-        await listen("luma://flush-and-close", async () => {
-          preferences.flush();
-          // **فرصة استرجاع صريحة عند الإغلاق** — §٥ **ثابت**.
-          // النافذة لا تُهدم على تغيير لم يصل القرص: يبقى النص في
-          // الذاكرة، وتظهر الحالة والسبب، وإعادة المحاولة مستمرة.
-          const saved = (await session?.flush()) ?? true;
-          if (!saved) {
-            fail(
-              "لم يُغلَق Luma: نصّك لم يصل القرص بعد",
-              "نصّك محفوظ في الذاكرة والمحاولة مستمرة. أفرغ مساحة على القرص أو تحقّق من الأذونات، ثم أغلق مرة أخرى.",
-            );
-            // المزلاج في النواة يُفتح، وإلا مرّت المحاولة التالية بلا
-            // حفظ أصلًا فأُغلق التطبيق على النص نفسه الذي رفضنا فقده.
-            await call("close_declined");
-            return;
-          }
-          const { getCurrentWindow } = await import("@tauri-apps/api/window");
-          await getCurrentWindow().destroy();
-        }),
-      );
-    } catch (e) {
-      console.error("[luma] تعذّر ربط أحداث النواة:", e);
-    }
+    // نقطة الاستقبال قبل كل عمل مؤجَّل — الشرح عند نداء `ui_ready`.
 
     const selftest = await call<boolean>("selftest_mode");
 
@@ -829,6 +1067,7 @@
 
   onDestroy(() => {
     for (const c of cleanups) c();
+    clearTimeout(debutTimer);
     session?.dispose();
     editor.destroy();
   });
@@ -840,6 +1079,7 @@
   <EditorShell
     {title}
     {saveState}
+    {saveDebut}
     showSaveStatus={previewId === null}
     activeSurface={surface}
     ontoggle={toggleSurface}
@@ -850,7 +1090,6 @@
     {comfort}
     inert={settings}
     zenHidden={comfort && prefs.zenEnabled && zenHidden}
-    typewriterBand={comfort && prefs.typewriterEnabled}
     bind:host={hostEl}
     bind:scroller={scrollerEl}
   >
@@ -882,15 +1121,41 @@
       </Button>
     {/snippet}
 
+    {#snippet selectionBar()}
+      {#if selection && !settings}
+        <!-- يصعد من أسفل ويهبط إليه — «ease-out للظهور» §١١. -->
+        <div in:surfaceIn={{ rise: 8 }} out:surfaceOut={{ rise: 8 }}>
+          <SelectionToolbar
+            {role}
+            {strong}
+            onrole={(r) => {
+              editor.setRole(r);
+              syncSelection();
+            }}
+            onstrong={() => {
+              editor.toggleStrong();
+              syncSelection();
+            }}
+            onquote={() => {
+              editor.wrapInQuotes();
+              syncSelection();
+            }}
+          />
+        </div>
+      {/if}
+    {/snippet}
+
     {#snippet comfortBar()}
       {#if comfort}
         <!-- «كل طبقة تُطفأ من الشريط السفلي أو من الإعدادات» — الصفحة ١١.
              ثلاث رقاقات لا لوحة تحكم: §٧ يمنع اللوحة داخل الوضع. -->
+        <!-- الترتيب نفسه الذي في الإعدادات: الآلة الكاتبة فالتركيز
+             فـZen. كان مقلوبًا هنا، فمن بنى خريطته الذهنية في أحد
+             الموضعين وجدها معكوسة في الآخر. -->
         <ToggleChip
-          label={isolate("Zen")}
-          name="Zen"
-          on={prefs.zenEnabled}
-          onclick={() => setPref("zenEnabled", !prefs.zenEnabled)}
+          label="الآلة الكاتبة"
+          on={prefs.typewriterEnabled}
+          onclick={() => setPref("typewriterEnabled", !prefs.typewriterEnabled)}
         />
         <ToggleChip
           label="التركيز"
@@ -898,9 +1163,10 @@
           onclick={() => setPref("focusEnabled", !prefs.focusEnabled)}
         />
         <ToggleChip
-          label="الآلة الكاتبة"
-          on={prefs.typewriterEnabled}
-          onclick={() => setPref("typewriterEnabled", !prefs.typewriterEnabled)}
+          label={isolate("Zen")}
+          name="Zen"
+          on={prefs.zenEnabled}
+          onclick={() => setPref("zenEnabled", !prefs.zenEnabled)}
         />
       {/if}
     {/snippet}
@@ -948,38 +1214,7 @@
     {/if}
   {/if}
 
-  <!-- شريط التحديد يعلو كل شيء بـ`fixed`، فلا يكفي أن يصير الإطار
-       `inert` تحته: يُشرَط بالشاشة نفسها. -->
-  {#if selection && !settings}
-    <div
-      class="floating"
-      style:top="{selection.top}px"
-      style:left="{selection.left}px"
-    >
-      <SelectionToolbar
-        {role}
-        onrole={(r) => {
-          editor.setRole(r);
-          syncSelection();
-        }}
-        onquote={() => {
-          editor.wrapInQuotes();
-          syncSelection();
-        }}
-      />
-    </div>
-  {/if}
-
 {/if}
 
 <style>
-  /* شريط التحديد فوق النص المحدَّد: `fixed` بإحداثيات النافذة، فلا
-     يحتاج سلفًا محدَّد الموضع ولا يتأثر بتمرير الورقة. */
-  .floating {
-    position: fixed;
-    /* فوق التحديد بفجوة صغيرة، ومتمركز على منتصفه */
-    transform: translate(-50%, calc(-100% - var(--space-008)));
-    z-index: 2;
-  }
-
 </style>

@@ -14,6 +14,7 @@
   import { LIMITS, type Preferences } from "../lib/preferences.svelte";
   import { coverageBadge, coverageLabel, type FontReference } from "../lib/fonts";
   import { arabicDigits, isolate } from "../lib/bidi";
+  import { surfaceIn, surfaceOut } from "../lib/transitions";
 
   /**
    * شاشة الإعدادات (`125:73` وما بعدها).
@@ -77,6 +78,11 @@
   من الشجرة فعلًا، فالإعلان صادقٌ لا حيلة. و§١٠ «لا لوحة تحبس التركيز»
   عن اللوحات الجانبية، وهذه شاشة تحلّ محلّ الإطار لا عمودٌ بجانبه.
 -->
+<!--
+  الشاشة تحلّ محلّ المحرر ولا تنزلق فوقه: تلاشٍ وحده، بلا إزاحة.
+  إزاحةُ شاشةٍ بملء النافذة تجرّ عمودَي التنقل والمحتوى معها فتُقرأ
+  ارتجاجًا لا انسيابًا — §١١ يخصّ الإزاحة بما يدخل فوق سطحٍ باقٍ.
+-->
 <div
   class="screen"
   data-settings
@@ -86,6 +92,8 @@
   aria-label="الإعدادات"
   tabindex={-1}
   {inert}
+  in:surfaceIn
+  out:surfaceOut
 >
   <header class="titlebar luma-chrome" data-tauri-drag-region>
     <span class="title">الإعدادات</span>

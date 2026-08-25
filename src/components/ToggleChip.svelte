@@ -56,11 +56,14 @@
        الحدّ الوحيد المسموح أن يعرّف عنصر تحكم». */
     border: 1px solid var(--border-control);
     background: var(--surface-paper);
+    /* تطفو على قماشٍ عارٍ في المحرر المريح، فترتفع عنه — §٦ «خفيف
+       للعناصر التفاعلية». والمتوسط أثقل من رقاقةٍ بهذا الحجم. */
+    box-shadow: var(--shadow-low);
     color: var(--text-secondary);
     font: var(--text-ui-09);
     letter-spacing: 0;
     cursor: pointer;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color var(--motion-quick) ease, color var(--motion-quick) ease;
   }
   .chip:hover {
     background: var(--surface-raised);
@@ -70,6 +73,14 @@
     background: var(--accent-subtle);
     border-color: var(--accent-graphic);
     color: var(--accent-text);
+  }
+  /* المفعَّلة تستجيب كذلك: قواعد `:hover` أعلاه تخصيصها مساوٍ
+     لـ`.on` والمتأخّر يغلب، فكانت المطفأة تستجيب للحوم والمفعَّلة
+     جامدة — ولا شيء يُشعر أنها قابلة للإطفاء.
+     والردّ على الحافة لا على الخلفية: تعميق التظليل يهبط بنصّها إلى
+     ٤٫٠٩:١ — قِيس — ودون AA. */
+  .chip.on:hover {
+    border-color: var(--accent-text);
   }
   .chip:focus-visible {
     outline: var(--size-focus-ring) solid var(--accent-graphic);

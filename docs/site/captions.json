@@ -1,0 +1,22 @@
+{
+  "phase1-focus-mode.png": "وضع التركيز داخل أول Luma.app مبنية",
+  "phase1-macos-rtl-chrome.png": "شريط النافذة الشفاف وأزرار النظام على macOS",
+  "phase3-resume-after-kill.png": "الاستئناف بعد إنهاء قسري أثناء الكتابة",
+  "phase3-save-failed.png": "«تعذّر الحفظ» — والنص يبقى قابلًا للكتابة",
+  "phase4-editor-sage.png": "المحرر في ثيم مريمية",
+  "phase4-gallery-paper.png": "معرض المكونات في ثيم ورق",
+  "phase4-gallery-midnight.png": "معرض المكونات في ثيم ليل",
+  "phase4b-scroll-continuous.png": "الورقة تحيط بالنص كاملًا عند التمرير",
+  "phase4b-selection.png": "التحديد متصل عبر الأسطر العربية",
+  "phase4b-sheet-midnight.png": "سطح الكتابة في ثيم ليل",
+  "phase5-shell.png": "إطار المحرر: شريط النافذة وشريط الأسطح والورقة",
+  "phase5-library.png": "المكتبة الجانبية مفتوحة بلا إزاحة للورقة",
+  "phase5-library-midnight.png": "المكتبة الجانبية في ثيم ليل",
+  "phase5-history.png": "لوحة السجل الزمني ونقاطه",
+  "phase5-preview.png": "معاينة نسخة سابقة — قراءة فقط",
+  "phase6-comfort.png": "المحرر المريح — لا أشرطة ولا ورقة",
+  "phase6-fonts.png": "اختيار خط الكتابة من مصادره الثلاثة",
+  "phase6-settings-appearance.png": "الإعدادات — المظهر والثيمات الخمسة",
+  "phase6-settings-writing.png": "الإعدادات — الكتابة والتباعد",
+  "phase6-settings-midnight.png": "الإعدادات في ثيم ليل"
+}

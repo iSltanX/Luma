@@ -30,7 +30,7 @@ ID`، والتصديق، والتثبيت على حساب نظيف — وهي م
 
 `src/dev/` أدوات تطوير لا تُشحن (تُستورد ديناميكيًا خلف أعلام بيئة).
 طبقة الرموز مولَّدة: `node src/tokens/generate.mjs` بعد أي تغيير في `source.json`.
-مخرجاتها (`tokens.css` و`themes.ts`) **لا تُحرَّر يدويًا**.
+مخرجاتها (`tokens.css` و`themes.ts` و`motion.ts`) **لا تُحرَّر يدويًا**.
 
 ## الحزمة
 
@@ -66,9 +66,9 @@ LUMA_SELFTEST=1 ./src-tauri/target/release/bundle/macos/Luma.app/Contents/MacOS/
 
 ```
 src/editor/    نواة المحرر — لا تحفظ ولا تعرف المكتبة (README فيها)
-src/lib/       autosave · session · bidi · library · surfaces · preferences · typewriter · fonts
+src/lib/       autosave · session · bidi · library · surfaces · preferences · typewriter · fonts · transitions
 src/dev/       ⚠️ أدوات تطوير لا تُشحن
-src/tokens/    ⚠️ مولَّد: source.json → tokens.css + themes.ts
+src/tokens/    ⚠️ مولَّد: source.json → tokens.css + themes.ts + motion.ts
 src/components/ مكتبة المكونات + الأيقونات الـ٢٢ — و`EditorShell` إطار كل شاشة
 src-tauri/     النواة الأصلية — storage/ والنافذة والقائمة والأوامر
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة

@@ -52,6 +52,26 @@ for (const [k, v] of Object.entries(src.radius)) {
 css += `\n`;
 for (const [k, v] of Object.entries(src.size)) css += `  --size-${k}: ${v}px;\n`;
 
+// الحركة — مُدد ومنحنيات «اللغة البصرية» §١١، وضع واحد لا يتغيّر بالثيم.
+if (src.motion) {
+  css += `\n`;
+  for (const [k, v] of Object.entries(src.motion.duration)) {
+    css += `  --motion-${k}: ${v}ms;\n`;
+  }
+  for (const [k, v] of Object.entries(src.motion.ease)) {
+    css += `  --ease-${k}: ${v};\n`;
+  }
+}
+
+// الظلال — وضع واحد لا يتغيّر بالثيم، كقيم «اللغة البصرية» §٦ نفسها.
+if (src.shadow) {
+  css += `\n`;
+  for (const [k, v] of Object.entries(src.shadow)) {
+    if (k.startsWith("_")) continue;
+    css += `  --shadow-${k}: ${v};\n`;
+  }
+}
+
 // قيم مركَّبة — تُصرَّح بعد الرموز التي تعتمد عليها
 if (src.derived) {
   css += `\n`;
@@ -102,6 +122,29 @@ ${JSON.stringify(src.colors, null, 2)};
 `;
 writeFileSync(join(here, "themes.ts"), ts);
 
+// ── motion.ts ─────────────────────────────────────────────────
+// المُدّة تُستهلك مرتين: رمزًا في CSS، ورقمًا في انتقالات Svelte —
+// ومصدرهما واحد فلا تفترقان. المنحنى لا يُصدَّر هنا: CSS يأخذه رمزًا،
+// وجافاسكربت تأخذ نظيره من `svelte/easing`.
+if (src.motion) {
+  const entries = Object.entries(src.motion.duration)
+    .map(([k, v]) => `  ${k}: ${v},`)
+    .join("\n");
+  writeFileSync(
+    join(here, "motion.ts"),
+    `${BANNER.replace(/^\/\* /, "/* ").trim()}
+
+/** مُدد الحركة بالمللي ثانية — «اللغة البصرية» §١١. */
+export const MOTION = {
+${entries}
+} as const;
+
+export type MotionTier = keyof typeof MOTION;
+`,
+  );
+}
+
 console.log(
-  `✓ tokens.css و themes.ts — ${Object.keys(src.colors).length} لونًا × ${themeIds.length} ثيمات`,
+  `✓ tokens.css و themes.ts و motion.ts — ` +
+    `${Object.keys(src.colors).length} لونًا × ${themeIds.length} ثيمات`,
 );

@@ -197,6 +197,7 @@ mod tests {
                 id: "b1".into(),
                 role: "body".into(),
                 text: text.into(),
+                marks: Vec::new(),
             }],
             created_at: 0,
             updated_at: 0,

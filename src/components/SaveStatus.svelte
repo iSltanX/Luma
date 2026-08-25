@@ -10,7 +10,13 @@
    * **لا معنى يُنقل باللون وحده:** كل حالة تحمل أيقونة ونصًّا معًا
    * — §٩ و§١٧ مبدأ ٩.
    */
-  let { state }: { state: SaveState } = $props();
+  /**
+   * `debut` — الظهور الأول لمستند جديد (`FEEL-PLAN` M0 ج): «محفوظ»
+   * بكامل حضوره ثم يخفت إلى حالته الدائمة الخافتة. مرة واحدة لكل
+   * مستند، ولا يمسّ «لا شريط دائم يطالب بالانتباه» — `Luma.md` §٨.
+   */
+  let { state, debut = false }: { state: SaveState; debut?: boolean } =
+    $props();
 
   const label = $derived(
     state.kind === "saving"
@@ -31,6 +37,7 @@
   class="status"
   class:saving={state.kind === "saving"}
   class:failed={state.kind === "failed"}
+  class:debut={debut && state.kind === "saved"}
   aria-live="polite"
   aria-atomic="true"
 >
@@ -66,8 +73,15 @@
     font: var(--text-ui-09);
     letter-spacing: 0;
     color: var(--text-muted);
-    /* الحالة المستقرة خافتة: لا تطلب انتباهًا في الظروف الطبيعية */
-    transition: opacity 200ms ease;
+    /* الحالة المستقرة خافتة: لا تطلب انتباهًا في الظروف الطبيعية.
+       واللون في الانتقال لأجل خفوت الظهور الأول — FEEL-PLAN M0. */
+    transition: opacity var(--motion-quick) ease, color var(--motion-quick) ease;
+  }
+
+  /* الظهور الأول: أول «محفوظ» لمستند وُلد للتوّ يُرى بكامل حضوره،
+     ثم يعيده انتقال اللون إلى خفوته الدائم. */
+  .status.debut {
+    color: var(--text-primary);
   }
 
   .status.saving {
@@ -99,6 +113,9 @@
   @media (prefers-reduced-motion: reduce) {
     .spin {
       animation: none;
+    }
+    .status {
+      transition: none;
     }
   }
 </style>

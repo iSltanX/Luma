@@ -28,7 +28,7 @@
     display: inline-flex; align-items: center; justify-content: center;
     border: none; background: transparent; color: var(--text-secondary);
     border-radius: var(--radius-sm); cursor: pointer;
-    transition: background-color 120ms ease, color 120ms ease;
+    transition: background-color var(--motion-quick) ease, color var(--motion-quick) ease;
   }
   .ib:hover:not(:disabled) { background: var(--surface-sunken); color: var(--text-primary); }
   .ib:active:not(:disabled) { background: var(--border-subtle); }

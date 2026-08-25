@@ -1,12 +1,12 @@
 /**
  * مخطط المحرر — يطابق `Block` واحدًا لواحد.
  *
- * ثلاث عُقَد كتل فقط: فقرة وعنوانان. **بلا marks إطلاقًا** حتى تُعتمد
- * مجموعة التنسيق المرشحة في `Luma.md` §٥.
+ * خمس عُقَد كتل: فقرة وثلاثة عناوين واقتباس. وعلامةٌ واحدة داخل
+ * السطر: **الوزن** — وهو ما تسمّيه `Luma.md` §٥ بديلَ التمييز
+ * للعربية. **ولا مائل**: العربية لا تُمال.
  *
- * غياب `marks` من المخطط ليس نقصًا بل حارس: اللصق لا يستطيع أن يُدخل
- * غامقًا أو مائلًا لأن المخطط لا يعرفهما، لا لأن الكود ينظّفهما.
- * والعربية لا تُمال أصلًا — §٥ **ثابت**.
+ * وحارسُ اللصق باقٍ حيث كان يجب أن يكون: `handlePaste` يُدخل نصًّا
+ * عاديًا دائمًا، فلا يتسرّب تنسيقٌ عبر HTML وإن عرف المخطط الوزن.
  *
  * لكل كتلة سمة `id` تعيش مع العقدة عبر التحرير، ولا تُكتب في DOM:
  * إخراجها يعني تسرّبها إلى ما يُنسخ خارج التطبيق. استعادتها بعد اللصق
@@ -48,18 +48,46 @@ export const schema = new Schema({
       toDOM: () => ["h2", { dir: "rtl" }, 0],
       parseDOM: [{ tag: "h2" }],
     },
+
+    heading3: {
+      group: "block",
+      content: "inline*",
+      attrs: { id: { default: null as string | null } },
+      defining: true,
+      toDOM: () => ["h3", { dir: "rtl" }, 0],
+      parseDOM: [{ tag: "h3" }],
+    },
+
+    // اقتباس **كتلة واحدة** لا وعاءً يحوي فقرات: نموذج المحتوى مسطّح.
+    quote: {
+      group: "block",
+      content: "inline*",
+      attrs: { id: { default: null as string | null } },
+      defining: true,
+      toDOM: () => ["blockquote", { dir: "rtl" }, 0],
+      parseDOM: [{ tag: "blockquote" }],
+    },
   },
-  marks: {},
+  marks: {
+    strong: {
+      toDOM: () => ["strong", 0],
+      parseDOM: [{ tag: "strong" }, { tag: "b" }],
+    },
+  },
 });
 
 export const NODE_FOR_ROLE: Readonly<Record<BlockRole, string>> = {
   body: "paragraph",
   h1: "heading1",
   h2: "heading2",
+  h3: "heading3",
+  quote: "quote",
 };
 
 export const ROLE_FOR_NODE: Readonly<Record<string, BlockRole>> = {
   paragraph: "body",
   heading1: "h1",
   heading2: "h2",
+  heading3: "h3",
+  quote: "quote",
 };
