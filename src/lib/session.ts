@@ -9,7 +9,28 @@
  */
 
 import type { Block, EditorCore } from "../editor";
-import { Autosave, type SaveState } from "./autosave";
+import { Autosave, type FlushOutcome, type SaveState } from "./autosave";
+
+/**
+ * لم يستقرّ النص على القرص، فلم تقع المغادرة.
+ *
+ * يحمل **السبب** لا الخبر وحده: من يعرض الرسالة يحتاج التمييز بين
+ * قرصٍ رفض — وعلاجه عند صاحبه — وكاتبٍ لم يتوقف، ولا علاج له إلا
+ * لحظة. وخلطُهما كان يعرض تشخيص عطلِ قرصٍ سليم.
+ */
+export class NotSettledError extends Error {
+  constructor(
+    readonly because: "refused" | "busy",
+    action: string,
+  ) {
+    super(
+      because === "refused"
+        ? `تعذّر حفظ النص الحالي، فلم ${action}`
+        : `النص الحالي ما زال يصل القرص، فلم ${action} بعد`,
+    );
+    this.name = "NotSettledError";
+  }
+}
 
 /** يُنشأ المعرّف عند أول محتوى فعلي لا عند فتح المساحة. */
 function newDocumentId(): string {
@@ -31,7 +52,7 @@ interface Bridge {
     blocks: Block[];
     createdAt: number;
   }>;
-  mostRecent(): Promise<string | null>;
+  remove(id: string): Promise<void>;
 }
 
 export interface SessionOptions {
@@ -101,45 +122,55 @@ export class EditorSession {
     return this.buffer;
   }
 
+  /** الفراغ يحسمه النص لا عدد الكتل — `Luma.md` §٤. */
+  private get isEmpty(): boolean {
+    return !this.buffer.some((b) => b.text.trim() !== "");
+  }
+
   /**
-   * يستأنف آخر مستند، أو يفتح مساحة جديدة إن لم يكن ثمة شيء.
+   * يحذف المستند الحالي إن كان فارغًا — **عند المغادرة وحدها**.
    *
-   * «لا يبدأ من المكتبة» — `Luma.md` §٢٠ مسألة ١ **ثابت**.
+   * «المستند الفارغ لا يبقى بعد مغادرته» — `Luma.md` §٤ **ثابت**
+   * ([ADR ٠٠١٧](../../docs/decisions/0017-clean-start-and-deletion.md)).
+   * والمغادرة ثلاث: بدء نصّ جديد، وفتح مسودة أخرى، وإغلاق التطبيق.
+   *
+   * **لا يُستدعى إلا بعد `flush()` ناجح، والترتيب ليس تفصيلًا.**
+   * الحذف يتسابق مع الحفظ التلقائي: البُفر يسبق القرص دائمًا، فلو
+   * قُرئ الفراغ وكتابةٌ معلَّقة لم تصل بعد، حُذف مستندٌ لم يكن فارغًا
+   * — أو وصلت الكتابة بعد الحذف فبعثته من جديد. وبعد `flush()` ناجح
+   * وحده يصير البُفر خبرًا صادقًا عن القرص: `pending` فارغ، فما يُقرأ
+   * هنا هو ما استقرّ هناك.
+   *
+   * وفشل الحفظ يمنع الحذف من أصله: من يستدعيه يتوقف قبل أن يبلغه.
+   *
+   * **يُبلّغ:** `true` إن حُذف شيء.
    */
-  async resume(): Promise<void> {
-    let id: string | null = null;
-    try {
-      id = await this.bridge.mostRecent();
-    } catch {
-      // تعذّر التعداد لا يمنع الكتابة: تُفتح مساحة جديدة
-    }
-    if (!id) return;
+  async discardIfEmpty(): Promise<boolean> {
+    const id = this.documentId;
+    if (!id || !this.isEmpty) return false;
 
-    try {
-      const doc = await this.bridge.load(id);
+    // **كتابةٌ لم تصل القرص تمنع المحو.**
+    //
+    // عقد `flush` صار صادقًا (يستنزف ويقول لماذا لم يستقرّ)، ومع ذلك
+    // يبقى هذا الفحص لازمًا لعلّةٍ أخرى: `pending` لا يُمحى إلا بعد
+    // نجاح الكتابة، فيبقى مملوءًا طوال كتابةٍ **جارية**؛ وبين حلّ
+    // `flush` عند المُستدعي وبلوغ هذا السطر دوراتٌ مجهرية والمحرر
+    // فيها حيّ. فمن يحذفه ظنًّا أنه صار زائدًا يفتح البابَ نفسه:
+    // محوٌ وكتابةُ حمولةٍ غير فارغة لذلك المعرّف ما زالت في الطريق،
+    // فتهبط بعده وتبعث المستند. والفحص يفشل **آمنًا**: يبقى صفٌّ
+    // فارغ، ولا يُمحى ما لم يستقرّ.
+    if (this.autosave.hasPending) return false;
 
-      // **ما كتبه المستخدم قبل أن يجهز الاستئناف لا يُستبدل.**
-      //
-      // المؤشر حيّ من أول لحظة عمدًا — §١٤: «تظهر مساحة الكتابة قبل
-      // تحميل الفهارس والأسطح الثانوية». وبين ظهوره ووصول المستند
-      // المستأنف نافذةٌ قِيست ٨٥ms على جهاز سريع، وتطول مع مكتبة
-      // كبيرة أو جهاز أبطأ. من كتب فيها كان نصّه يُمحى صامتًا.
-      //
-      // الفحص هنا لا قبل `load`: الكتابة قد تقع أثناء القراءة نفسها.
-      // وما كُتب يبقى ويصير مستندًا جديدًا عبر `handleChange` — ولا
-      // يُكتب فوق المستند المستأنف لأن الجلسة لم تتبنَّ معرّفه.
-      if (this.editor.getBlocks().some((b) => b.text.trim() !== "")) return;
+    // **المعرّف يُصفَّر قبل الرحلة لا بعدها.** بين طلب المحو وعودته
+    // نافذةُ IPC كاملة، والمحرر فيها يقبل الكتابة: حرفٌ واحد يقع
+    // فيها كان يُدفع تحت المعرّف القديم فيبعث المستند بعد محوه. وبعد
+    // التصفير يصير ذلك الحرف مستندًا جديدًا كما ينبغي.
+    this.documentId = null;
+    this.createdAt = null;
+    this.explicitTitle = null;
 
-      this.documentId = doc.id;
-      this.createdAt = doc.createdAt;
-      this.explicitTitle = doc.title;
-      this.buffer = doc.blocks;
-      this.editor.setBlocks(doc.blocks);
-      this.onTitleChange?.(this.displayTitle());
-    } catch {
-      // مستند تالف لا يمنع الكتابة — تُفتح مساحة جديدة بدله
-      this.documentId = null;
-    }
+    await this.bridge.remove(id);
+    return true;
   }
 
   /**
@@ -152,12 +183,17 @@ export class EditorSession {
   async open(id: string): Promise<void> {
     if (id === this.documentId) return;
     // «الحفظ أولًا لا بالتوازي: لو فشل، لا يُستبدل شيء» — والجواب
-    // يُقرأ الآن بدل أن يُفترض.
-    if (!(await this.flush())) {
-      throw new Error("تعذّر حفظ المستند الحالي، فلم يُفتح غيره");
-    }
+    // يُقرأ الآن بدل أن يُفترض، ويُقال سببُه كما هو لا كما يُظنّ.
+    const wrote = await this.flush();
+    if (!wrote.settled) throw new NotSettledError(wrote.because, "يُفتح غيره");
 
+    // ⚠️ **مغادرةٌ لا تكنس بعد** — `discardIfEmpty` مبنيّ وغير موصول.
+    // الوصل معلَّق على ثوابت تصطدم بالقرار ولم تُحسم ([ADR ٠٠١٨]):
+    // التالف الذي يُكتب فوقه، ولقطة الأمان الفارغة، والمعاينة التي لا
+    // يراها الفراغ. (وعقدُ `flush` كان رابعها ورُفع.) الوصل هنا سطرٌ
+    // واحد يوم تُحسم الثلاثة — ولا يُوصل قبلها: المحو نهائي ولا سلّة.
     const doc = await this.bridge.load(id);
+
     this.documentId = doc.id;
     this.createdAt = doc.createdAt;
     this.explicitTitle = doc.title;
@@ -175,9 +211,9 @@ export class EditorSession {
    * تُترك بلا كتابة لا تُخلّف ضجيجًا في المكتبة.
    */
   async startNew(): Promise<void> {
-    if (!(await this.flush())) {
-      throw new Error("تعذّر حفظ النص الحالي، فلم يُبدأ غيره");
-    }
+    const wrote = await this.flush();
+    if (!wrote.settled) throw new NotSettledError(wrote.because, "يُبدأ غيره");
+    // ⚠️ مغادرةٌ لا تكنس بعد — الشرح عند `open()` أعلاه.
     this.documentId = null;
     this.createdAt = null;
     this.explicitTitle = null;
@@ -244,10 +280,11 @@ export class EditorSession {
   /**
    * كتابة فورية — فقد التركيز، الإغلاق، تبديل المستند.
    *
-   * **يُبلّغ**: `true` إن وصل كل شيء القرص. من ينوي استبدال المحتوى
-   * بعده مُلزَمٌ بقراءة الجواب — §٥ **ثابت**.
+   * **يُبلّغ**: `settled` إن وصل كل شيء القرص، ولماذا لم يستقرّ إن لم
+   * يصل. من ينوي استبدال المحتوى بعده مُلزَمٌ بقراءة الجواب — §٥
+   * **ثابت** — ومن يعرض رسالةً مُلزَمٌ بقراءة سببه.
    */
-  flush(): Promise<boolean> {
+  flush(): Promise<FlushOutcome> {
     return this.autosave.flush();
   }
 

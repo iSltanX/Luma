@@ -1,7 +1,7 @@
 <script lang="ts">
   import Icon from "./Icon.svelte";
   import type { IconName } from "./icons";
-  /** صف تنقل — ثلاث حالات (`114:398`). سهم الرجوع يشير يمينًا في RTL. */
+  /** صف تنقل — ثلاث حالات (`114:398`). رمزه الطرفي مؤشر تقدّم، لا سهم رجوع. */
   let { label, icon, active = false, onclick }:
     { label: string; icon?: IconName; active?: boolean; onclick?: () => void } = $props();
 </script>
@@ -36,6 +36,7 @@
     outline-offset: var(--size-focus-offset);
   }
   .label { font: var(--text-ui-07); letter-spacing: 0; flex: 1; }
-  /* في RTL يشير السهم يمينًا: يُقلب الرمز المرسوم لليسار */
+  /* مؤشر تقدّم لا رجوع: أيقونة «رجوع» مرسومة إلى اليمين، والقلب
+     يوجّهها إلى اليسار — جهة التقدّم في RTL (ADR ٠٠٠٨) */
   .chev { color: var(--text-muted); transform: scaleX(-1); }
 </style>

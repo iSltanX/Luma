@@ -76,7 +76,17 @@ pub fn save_document(
         updated_at: now,
         last_opened_at: now,
     };
-    if candidate.is_empty() && !docs.exists(&payload.id) {
+    // **«موجود» = مستندٌ يُقرأ، لا ملفٌّ في المسار.**
+    //
+    // كان الفحص `exists()` — وهو يسأل عن وجود المسار وحده. وملفٌّ
+    // تالف مسارُه موجود ومحتواه مجهول، فكان الفراغ يُكتب فوقه: محوٌ
+    // لما لا نعرف ما هو، وضياعُ ما كان يمكن إنقاذه منه يدويًا. وهو ما
+    // يمنعه §١٤ نصًّا: «لا يُستبدل بمستند فارغ… الملف يبقى كما هو».
+    //
+    // والقراءة تخدم غرضين — الحكم على «جديد»، واستعادة `createdAt` —
+    // فتُقرأ مرة واحدة ويُقرأ جوابها مرتين.
+    let existing = docs.load(&payload.id);
+    if candidate.is_empty() && existing.is_err() {
         return Ok(SaveResult {
             id: payload.id,
             updated_at: now,
@@ -84,10 +94,13 @@ pub fn save_document(
         });
     }
 
-    // يُحافظ على `createdAt` الأصلي إن كان المستند موجودًا
+    // ومحتوًى حقيقيّ يُكتب فوق التالف عمدًا: المستند مفتوحٌ في المحرر
+    // فنسخته في الذاكرة هي السليمة، وحجبُ الكتابة يُبقي عمل الكاتب بلا
+    // قرص. المنعُ للفراغ وحده — لأنه محوٌ لا إصلاح.
     let mut doc = candidate;
-    if let Ok(existing) = docs.load(&payload.id) {
-        doc.created_at = existing.created_at;
+    if let Ok(ref e) = existing {
+        // يُحافظ على `createdAt` الأصلي إن كان المستند مقروءًا
+        doc.created_at = e.created_at;
     }
 
     docs.save(&doc).map_err(to_message)?;
@@ -121,8 +134,9 @@ pub struct LoadedDocument {
 pub fn load_document(storage: State<'_, Storage>, id: String) -> Result<LoadedDocument, String> {
     let docs = storage.docs();
     let mut doc = docs.load(&id).map_err(to_message)?;
+    // الختم بلا قارئ منذ إلغاء الاستئناف — مصير الحقل مع هجرة
+    // السلّة (ADR ٠٠١٧)، وفشله لا يمنع فتح المستند.
     doc.last_opened_at = now_ms();
-    // فشل ختم وقت الفتح لا يمنع فتح المستند
     let _ = docs.save(&doc);
     Ok(LoadedDocument {
         display_title: doc.display_title(),
@@ -148,10 +162,17 @@ pub fn list_documents(storage: State<'_, Storage>) -> Result<LibraryListing, Str
     Ok(LibraryListing { documents, damaged })
 }
 
-/// آخر مستند فُتح — أساس الاستئناف. `Luma.md` §٢٠ مسألة ١.
+/// يحذف مستندًا بسجله. `Luma.md` §٦ **معتمد** — [ADR ٠٠١٧].
+///
+/// **حذفٌ نهائي اليوم** (`remove_dir_all` يمحو المستند ولقطاته معًا)،
+/// والتدارك المعتمد هو السلّة — §٢٠ مسألة ١٩. ولذلك **لا يُشحن هذا
+/// المسار قبل أن تُبنى**: يحرسه `scripts/release.sh`، لا اتفاقٌ.
+///
+/// مَن يستدعيه ملزَمٌ بأن يكون آخر حفظ قد استقرّ قبله: الحذف قبل
+/// استقرار الكتابة يمحو ما لم يكن فارغًا — الترتيب في `session.ts`.
 #[tauri::command]
-pub fn most_recent_document(storage: State<'_, Storage>) -> Result<Option<String>, String> {
-    storage.docs().most_recent().map_err(to_message)
+pub fn delete_document(storage: State<'_, Storage>, id: String) -> Result<(), String> {
+    storage.docs().delete(&id).map_err(to_message)
 }
 
 /// بادئة معرّفات ما ينشئه الفحص الذاتي.
@@ -160,11 +181,11 @@ const SELFTEST_PREFIX: &str = "selftest-";
 /// يزيل ما خلّفه الفحص الذاتي من مستندات. **أداة تطوير.**
 ///
 /// الفحص يكتب مستندات حقيقية في مجلد بيانات المستخدم ليختبر المسار
-/// الحقيقي، فكان يتركها بعده: مكتبةٌ ممتلئة بضجيج أداة، وأسوأ من ذلك
-/// أن الاستئناف يفتح آخرها بدل نصّ المستخدم.
+/// الحقيقي، فكان يتركها بعده: مكتبةٌ ممتلئة بضجيج أداة.
 ///
-/// **لا يحذف إلا ما تبدأ معرّفاته بـ`selftest-`.** لا يوجد أمر حذف عام
-/// في Luma — «لا حذف» قرارٌ في `Luma.md` §٦، وهذا لا ينقضه.
+/// **لا يحذف إلا ما تبدأ معرّفاته بـ`selftest-`.** وهو أضيق من
+/// `delete_document` عمدًا ويبقى منفصلًا عنه: أداةُ تطوير تكنس أثرها،
+/// لا مسارُ منتج — فلا يرث حدَّها ولا ترث حدَّه.
 #[tauri::command]
 pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
     let docs = storage.docs();
@@ -186,7 +207,7 @@ pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
 /// يبذر مكتبة اصطناعية لقياس «زمن فتح مستند من مكتبة كبيرة». أداة قياس.
 ///
 /// **كل معرّف يبدأ بـ`selftest-`** فيمحوها `cleanup_selftest` كاملةً،
-/// ولا تختلط بمستندات المستخدم ولا تسبقها في الاستئناف.
+/// ولا تختلط بمستندات المستخدم.
 #[tauri::command]
 pub fn seed_library(
     storage: State<'_, Storage>,
@@ -403,6 +424,43 @@ mod guards {
         assert!(
             offenders.is_empty(),
             "أمر متزامن يستدعي blocking_ — يتجمّد على الخيط الرئيسي: {offenders:?}"
+        );
+    }
+
+    /// **حارس §١٤: لا يُستبدل التالف بمستند فارغ.**
+    ///
+    /// حارسُ الفراغ في `save_document` كان يسأل `exists()` — وجودَ
+    /// مسار — فيمرّ على ملفٍّ تالف مسارُه قائم ومحتواه مجهول، فيُكتب
+    /// الفراغ فوقه. والفرق بين السؤالين لا يراه المترجم: كلاهما يعيد
+    /// حكمًا، وأحدهما وحده يعرف أن هناك مستندًا.
+    ///
+    /// والقاعدة تُحرَس على المصدر لأن الحكم يعيش داخل أمرٍ يحتاج
+    /// `State<Storage>` فلا يُبنى في اختبار وحدة. والفرق نفسه محروسٌ
+    /// سلوكيًّا في `storage::document` — انظر
+    /// `a_corrupt_file_exists_on_the_path_but_is_not_a_readable_document`.
+    #[test]
+    fn the_empty_guard_asks_for_a_readable_document_not_a_path() {
+        let src = include_str!("commands.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let code: String = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        let save = code
+            .split("pub fn save_document")
+            .nth(1)
+            .expect("لم يُعثر على save_document");
+        let body = save.split("#[tauri::command]").next().unwrap_or(save);
+
+        assert!(
+            !body.contains("exists("),
+            "حارس الفراغ يسأل عن وجود المسار — فيُكتب الفراغ فوق مستند تالف (§١٤)"
+        );
+        assert!(
+            body.contains("is_empty() && existing.is_err()"),
+            "حارس الفراغ لم يعد يسأل عن مستندٍ يُقرأ"
         );
     }
 }

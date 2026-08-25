@@ -28,11 +28,42 @@ const MAX_INTERVAL_MS = 5000;
 /** إعادة المحاولة بتباعد متزايد — §٥. */
 const RETRY_BACKOFF_MS = [1000, 3000, 8000, 20000] as const;
 
+/**
+ * حدّ دورات الاستنزاف في `flush` الواحدة.
+ *
+ * `flush` تكتب حتى يفرغ البُفر لا كتابةً واحدة (انظر عقدها). ولأن كل
+ * دورة تنتظر قرصًا، فكاتبٌ لا يتوقف يمكن نظريًا أن يُطيلها بلا حدّ:
+ * الحدّ يقطع ذلك، ويعود الجواب **صادقًا** — `false` وفي البُفر بقية —
+ * بدل أن يدور إلى الأبد أو يكذب. وفي الاستعمال الواقعي تكفي دورتان:
+ * الكتابة أسرع من الفاصل بين ضغطتين.
+ */
+const DRAIN_ROUNDS = 5;
+
 export type SaveState =
   | { kind: "idle" }
   | { kind: "saving" }
   | { kind: "saved"; at: number }
   | { kind: "failed"; message: string; attempt: number };
+
+/**
+ * نتيجة كتابة فورية.
+ *
+ * **`settled` وحدها تعني أن لا شيء بقي في البُفر.** وحين لا تستقرّ،
+ * السببان مختلفان اختلافًا يراه المستخدم، فلا يُختزلان في بتٍّ واحد:
+ *
+ * | `because` | ما جرى | ما يقال له |
+ * |---|---|---|
+ * | `refused` | القرص رفض الكتابة | عطلٌ يحتاج تدخّله: مساحة أو أذونات |
+ * | `busy` | كلّ الكتابات نجحت، وتغييرٌ وصل أثناء آخرها | لا عطل — يكفي أن يمهل لحظة |
+ *
+ * خلطُهما كان يعرض على من لم يتوقف عن الكتابة تشخيصَ عطلِ قرصٍ سليم،
+ * وشريطُ الحالة يقول «محفوظ» في اللحظة نفسها.
+ */
+export type FlushOutcome =
+  | { settled: true }
+  | { settled: false; because: "refused" | "busy" };
+
+const SETTLED: FlushOutcome = { settled: true };
 
 export interface AutosaveOptions<T> {
   /** يكتب فعلًا. يرمي عند الفشل. */
@@ -52,7 +83,7 @@ export class Autosave<T> {
    * كل طلب يُعلَّق على سابقه، فلا كتابتان متزامنتان على المسار نفسه،
    * و`flush()` لا يُحلّ إلا بعد أن يفرغ ما قبله.
    */
-  private queue: Promise<boolean> = Promise.resolve(true);
+  private queue: Promise<FlushOutcome> = Promise.resolve(SETTLED);
   private attempt = 0;
   private disposed = false;
 
@@ -88,24 +119,62 @@ export class Autosave<T> {
    * كتابة فورية — عند فقد التركيز أو الإغلاق أو تبديل المستند.
    *
    * **ينتظر أي كتابة جارية ثم يكتب ما تبقّى، ويُبلّغ بالنتيجة.**
-   * `true` يعني أن كل ما في البُفر وصل القرص.
+   * `settled` تعني أن كل ما في البُفر وصل القرص.
    *
    * كان يعود فورًا إن وجد كتابةً جارية، ويبتلع الفشل ويُحلّ كأن شيئًا
    * لم يكن. فمن ينتظره — فتحُ مستند آخر، أو معاينةُ نسخة، أو إغلاقُ
    * النافذة — كان يمضي فيستبدل المحتوى وهو يظنّه محفوظًا. الاستبدال
    * على وعدٍ كاذب هو بالضبط الطريق إلى فقد نصّ (§٥ **ثابت**).
+   *
+   * **وكان يكذب مرةً أخرى، أدقّ:** كتابةٌ واحدة ثم `true` — ولو وصل
+   * تغييرٌ **أثناءها**. الحرف الذي يُضغط في نافذة الكتابة يبقى في
+   * البُفر، والجواب يقول إن كل شيء وصل. فيمضي المُستدعي: يستبدل
+   * المحتوى فيُمحى الحرف من الشاشة ويهبط بعد حين في مستندٍ غادره
+   * صاحبه، أو يُغلق التطبيق على تغييرٍ لم يصل. ولذلك تستنزف الآن:
+   * تكتب حتى يفرغ البُفر، و`settled` تعني **لم يبقَ شيء** لا «كتبتُ
+   * مرة». وحين لا تستقرّ، تقول **لماذا**: `refused` عطلُ قرصٍ يحتاج
+   * تدخّل صاحبه، و`busy` كاتبٌ لم يتوقف — ولا يُقال للثاني ما يُقال
+   * للأول.
    */
-  flush(): Promise<boolean> {
-    if (this.disposed) return Promise.resolve(this.pending === null);
+  flush(): Promise<FlushOutcome> {
+    if (this.disposed) {
+      return Promise.resolve(
+        this.pending === null ? SETTLED : { settled: false, because: "busy" },
+      );
+    }
     this.clearTimers();
     this.queue = this.queue.then(
-      () => this.writePending(),
-      () => this.writePending(),
+      () => this.drain(),
+      () => this.drain(),
     );
     return this.queue;
   }
 
-  /** كتابة واحدة لما في البُفر. لا تُستدعى إلا من داخل الطابور. */
+  /**
+   * يكتب حتى يفرغ البُفر — هو ما يجعل عقد `flush` صادقًا.
+   *
+   * لا تُستدعى إلا من داخل الطابور، فلا دورتان متزامنتان.
+   */
+  private async drain(): Promise<FlushOutcome> {
+    for (let round = 0; round < DRAIN_ROUNDS; round += 1) {
+      if (this.pending === null) return SETTLED;
+      if (this.disposed) break;
+      if (!(await this.writePending())) {
+        return { settled: false, because: "refused" };
+      }
+    }
+
+    if (this.pending === null) return SETTLED;
+
+    // بلغ الحدّ وكلّ كتابةٍ نجحت: لا عطل هنا، بل كاتبٌ يسبق القرص.
+    // البقية تُترك لمؤقّت السكون، والجواب صادق ومتمايز.
+    if (!this.disposed && this.debounceTimer === null) {
+      this.debounceTimer = setTimeout(() => void this.flush(), DEBOUNCE_MS);
+    }
+    return { settled: false, because: "busy" };
+  }
+
+  /** كتابة واحدة لما في البُفر. لا تُستدعى إلا من داخل `drain`. */
   private async writePending(): Promise<boolean> {
     if (this.disposed) return this.pending === null;
 
@@ -119,12 +188,16 @@ export class Autosave<T> {
       // لا يُمحى البُفر إلا بعد نجاح الكتابة — §٥ **ثابت**
       if (this.pending === payload) this.pending = null;
       this.attempt = 0;
+      // **نجاحٌ يُبطل إعادة محاولة معلَّقة من فشلٍ سبقه.** بقاؤها يوقظ
+      // كتابةً لما وصل القرص أصلًا، فتومض «جارٍ الحفظ» بلا سبب.
+      if (this.retryTimer) {
+        clearTimeout(this.retryTimer);
+        this.retryTimer = null;
+      }
       this.opts.onState({ kind: "saved", at: Date.now() });
 
-      // تغييرات وصلت أثناء الكتابة
-      if (this.pending !== null) {
-        this.debounceTimer = setTimeout(() => void this.flush(), DEBOUNCE_MS);
-      }
+      // ما وصل أثناء الكتابة يتولّاه `drain` في دورته التالية — ولا
+      // يُجدوَل هنا مؤقّتٌ يَعِد بكتابةٍ ويترك الجواب كاذبًا.
       return true;
     } catch (e) {
       // البُفر يبقى كما هو: المحتوى لا يضيع لأن القرص رفض

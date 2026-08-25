@@ -197,7 +197,14 @@ fn memory_rss_kb() -> Option<u64> {
 /// النص لم يصل القرص، ثم **المحاولة الثانية تمرّ بلا حفظ** لأن
 /// المزلاج بقي مغلقًا — فيُغلق التطبيق على نصّ ضائع. الفتح هنا يجعل
 /// كل محاولة تمرّ بالحفظ وتُبلّغ من جديد (§٥ **ثابت**: «فرصة استرجاع
-/// صريحة»). والمستخدم لا يعلق: ⌘Q والإنهاء القسري بابان مفتوحان.
+/// صريحة»).
+///
+/// **والمخرج ليس هنا.** ⌘Q يبثّ `luma://flush-and-close` نفسه (انظر
+/// `on_menu_event`)، فلا هو ولا الزر الأحمر ولا ⌘W بابٌ يلتفّ على
+/// الرفض — وفتحُ المزلاج هنا يجعلها كلها تُرفض من جديد. ولولا حدٌّ في
+/// الواجهة لكان الإنهاء القسري المخرجَ الوحيد، وهو يقتل النسخة الوحيدة
+/// من النص: الخسارة عينها التي وُضع الرفض ليمنعها. **والحدّ في
+/// `App.svelte`:** يُرفض مرةً ويُقال للكاتب ثمنُ الإصرار، ثم يُحترم.
 #[tauri::command]
 fn close_declined() {
     CLOSING.store(false, std::sync::atomic::Ordering::SeqCst);
@@ -356,7 +363,7 @@ pub fn run() {
             commands::save_document,
             commands::load_document,
             commands::list_documents,
-            commands::most_recent_document,
+            commands::delete_document,
             commands::cleanup_selftest,
             commands::list_fonts,
             commands::pick_and_import_font,

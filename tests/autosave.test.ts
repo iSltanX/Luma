@@ -128,6 +128,83 @@ describe("الحفظ التلقائي", () => {
     a.dispose();
   });
 
+  /**
+   * **عقد `flush`: `true` تعني لم يبقَ شيء، لا «كتبتُ مرة».**
+   *
+   * كان يكتب كتابةً واحدة ثم يُبلّغ بالنجاح ولو وصل تغييرٌ أثناءها،
+   * فيمضي المُستدعي — يستبدل المحتوى أو يُغلق النافذة — على وعدٍ كاذب.
+   * وهذا الحارس يرصد الوعد نفسه لا عدد الكتابات.
+   */
+  it("الوعد بالنجاح لا يصدر وفي البُفر بقية", async () => {
+    let release: (() => void) | undefined;
+    const write = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
+      .mockResolvedValue(undefined);
+    const { a } = harness(write);
+
+    a.push("الأولى");
+    const promised = a.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    expect(write).toHaveBeenCalledTimes(1);
+
+    // الحرف الذي يُضغط **أثناء** الكتابة
+    a.push("الثانية");
+    release?.();
+
+    await expect(promised).resolves.toEqual({ settled: true });
+    // ولا يكون ذلك صادقًا إلا وقد وصلت «الثانية» فعلًا
+    expect(write).toHaveBeenLastCalledWith("الثانية");
+    expect(a.hasPending).toBe(false);
+    a.dispose();
+  });
+
+  it("الفشل بعد تغييرٍ أثناء الكتابة يُبلَّغ به لا يُبتلع", async () => {
+    let release: (() => void) | undefined;
+    const write = vi
+      .fn()
+      .mockImplementationOnce(() => new Promise<void>((r) => (release = r)))
+      .mockRejectedValue(new Error("القرص ممتلئ"));
+    const { a } = harness(write);
+
+    a.push("الأولى");
+    const promised = a.flush();
+    await vi.advanceTimersByTimeAsync(0);
+    a.push("الثانية");
+    release?.();
+
+    await expect(promised).resolves.toEqual({
+      settled: false,
+      because: "refused",
+    });
+    expect(a.hasPending).toBe(true);
+    a.dispose();
+  });
+
+  /**
+   * **`busy` ليس عطلًا، و`refused` عطل — ولا يُخلطان.**
+   *
+   * كان الجواب بتًّا عاريًا، فيُعرض على من لم يتوقف عن الكتابة تشخيصُ
+   * عطلِ قرصٍ سليم («أفرغ مساحة أو تحقّق من الأذونات») وشريطُ الحالة
+   * يقول «محفوظ» في اللحظة نفسها. هذا الحارس يرصد التمييز لا النتيجة.
+   */
+  it("كاتبٌ يسبق القرص يُبلَّغ `busy` لا عطلَ قرص", async () => {
+    // يدفع حرفًا داخل نافذة كل كتابة: البُفر لا يفرغ أبدًا
+    const write = vi.fn().mockImplementation(async () => {
+      a.push(`حرف-${write.mock.calls.length}`);
+    });
+    const { a, kinds } = harness(write);
+
+    a.push("الأولى");
+    const outcome = await a.flush();
+
+    expect(outcome).toEqual({ settled: false, because: "busy" });
+    // ولا فشلَ واحدًا: كل الكتابات نجحت — فليس عطلًا
+    expect(kinds()).not.toContain("failed");
+    expect(a.hasPending).toBe(true);
+    a.dispose();
+  });
+
   it("بعد التخلّص لا يكتب شيئًا", async () => {
     const write = vi.fn().mockResolvedValue(undefined);
     const { a } = harness(write);

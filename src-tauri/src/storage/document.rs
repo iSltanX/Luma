@@ -128,22 +128,6 @@ impl DocumentStore {
         Ok((out, damaged))
     }
 
-    /// آخر مستند فُتح — أساس الاستئناف عند إعادة التشغيل.
-    ///
-    /// مشتقّ من المستندات نفسها لا من ملف حالة منفصل: ملف الحالة
-    /// مصدر حقيقة ثانٍ يمكن أن يتناقض مع الواقع.
-    ///
-    /// **يقيس `lastOpenedAt` لا ترتيب `list`**: القائمة مرتّبة بآخر
-    /// تعديل لأنها للعرض، والاستئناف يسأل عن آخر ما فُتح — سؤالان
-    /// مختلفان، وخلطهما هو ما جعل الفتح يبدو تعديلًا.
-    pub fn most_recent(&self) -> Result<Option<String>> {
-        let (list, _) = self.list()?;
-        Ok(list
-            .into_iter()
-            .max_by_key(|d| d.last_opened_at)
-            .map(|d| d.id))
-    }
-
     pub fn delete(&self, id: &str) -> Result<()> {
         if !is_safe_id(id) {
             return Err(StoreError::NotFound);
@@ -341,22 +325,9 @@ mod tests {
         let _ = fs::remove_dir_all(&s.root);
     }
 
-    #[test]
-    fn most_recent_follows_last_opened() {
-        let s = store("recent");
-        let mut a = doc("aa", "أ");
-        a.last_opened_at = 10;
-        let mut b = doc("bb", "ب");
-        b.last_opened_at = 99;
-        s.save(&a).unwrap();
-        s.save(&b).unwrap();
-        assert_eq!(s.most_recent().unwrap(), Some("bb".into()));
-        let _ = fs::remove_dir_all(&s.root);
-    }
-
     /// **فتح نصّ ليس تعديلًا له.**
     ///
-    /// القائمة للعرض فتُرتَّب بآخر تعديل، والاستئناف يسأل عن آخر فتح.
+    /// القائمة للعرض فتُرتَّب بآخر تعديل، وختمُ وقت الفتح لا يمسّها.
     /// خلطهما كان يقفز بالنصّ المقروء إلى رأس المكتبة بلا حرف واحد.
     #[test]
     fn opening_a_document_does_not_reorder_the_library() {
@@ -380,8 +351,6 @@ mod tests {
             vec!["new", "old"],
             "الترتيب يتبع آخر تعديل لا آخر فتح"
         );
-        // والاستئناف مع ذلك يعود إلى آخر ما فُتح
-        assert_eq!(s.most_recent().unwrap(), Some("old".into()));
         let _ = fs::remove_dir_all(&s.root);
     }
 
@@ -391,7 +360,57 @@ mod tests {
         for bad in ["../evil", "/etc/passwd", "a/b", "", "a b"] {
             assert!(!is_safe_id(bad), "قُبل معرّف خطر: {bad}");
             assert!(s.load(bad).is_err());
+            // والحذف يمرّ بالحارس نفسه: معرّفٌ خطر لا يمحو شيئًا
+            assert!(s.delete(bad).is_err(), "حذفٌ بمعرّف خطر: {bad}");
         }
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الحذف يمحو المستند وسجله معًا** — `remove_dir_all` على مجلده.
+    ///
+    /// وهو ما يجعل الحذف بلا سلّة فقدًا لا رجعة فيه: اللقطات تذهب مع
+    /// المستند، ومنها لقطة الأمان التي تسبق كل استعادة. القاعدة مقصودة
+    /// ومقيسة هنا كي لا تتغيّر صامتة — `Luma.md` §٢٠ مسألة ١٩.
+    #[test]
+    fn delete_removes_the_document_with_its_revisions() {
+        let s = store("delete");
+        s.save(&doc("d1", "نصّ يُمحى")).unwrap();
+        let dir = s.dir_for("d1");
+        // لقطة داخل مجلد المستند — تمثّل سجله الزمني
+        fs::create_dir_all(dir.join("revisions")).unwrap();
+        fs::write(dir.join("revisions/r1.json"), b"{}").unwrap();
+        assert!(s.path_for("d1").exists());
+
+        s.delete("d1").unwrap();
+
+        assert!(!dir.exists(), "بقي مجلد المستند بعد الحذف");
+        assert!(matches!(s.load("d1"), Err(StoreError::NotFound)));
+        let (list, _) = s.list().unwrap();
+        assert!(list.iter().all(|d| d.id != "d1"), "المحذوف باقٍ في المكتبة");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **ملفٌّ في المسار ليس مستندًا يُقرأ** — والفرق كان يُخلط.
+    ///
+    /// حارسُ الفراغ في `save_document` بُني على `exists()`، فمرّ على
+    /// التالف وكُتب الفراغ فوقه — وهو ما يمنعه §١٤. هذا الاختبار
+    /// يثبّت الفرق بين السؤالين كي لا يُخلطا من جديد.
+    #[test]
+    fn a_corrupt_file_exists_on_the_path_but_is_not_a_readable_document() {
+        let s = store("exists-vs-load");
+        s.save(&doc("x1", "نصّ سليم")).unwrap();
+        fs::write(s.path_for("x1"), "{ ليس JSON".as_bytes()).unwrap();
+
+        assert!(s.exists("x1"), "المسار موجود");
+        assert!(s.load("x1").is_err(), "والمستند لا يُقرأ");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// حذف ما ليس موجودًا ليس خطأً: المغادرة لا تتعثّر بمستند سبق محوه.
+    #[test]
+    fn deleting_what_is_not_there_is_not_an_error() {
+        let s = store("delete-missing");
+        assert!(s.delete("ghost").is_ok());
         let _ = fs::remove_dir_all(&s.root);
     }
 }

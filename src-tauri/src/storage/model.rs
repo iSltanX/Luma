@@ -51,6 +51,8 @@ pub struct Document {
     pub blocks: Vec<Block>,
     pub created_at: i64,
     pub updated_at: i64,
+    /// آخر فتح. كان أساس الاستئناف؛ بلا قارئ منذ إلغائه (ADR ٠٠١٧)،
+    /// ومصيره يُحسم مع هجرة السلّة — لا يُزال حقل مخطط خارج هجرة.
     pub last_opened_at: i64,
 }
 

@@ -593,6 +593,12 @@ export async function runSelfTest(
       add("empty-not-persisted", "مساحة فارغة لا تُحفظ", false, String(e));
     }
 
+    // ملاحظة: كان هنا بندٌ اسمه «المُفرَغ يُحذف عند مغادرته» — أُزيل.
+    // الجلسة مفصولة في وضع الفحص (`session.dispose()`)، فأيّ بند هنا
+    // ينادي `delete_document` مباشرةً يقيس `remove_dir_all` — وهو
+    // مقيسٌ في `document.rs` — لا يقيس القرار. بوابةٌ خضراء لا تحرس
+    // شيئًا أسوأ من غياب البوابة: تكذب على من يقرؤها.
+
     // الاستعادة تحفظ الحالة الحالية أولًا — §١٧ مبدأ ٥
     try {
       const rid = `selftest-rev-${Date.now().toString(36)}`;
@@ -986,21 +992,22 @@ export async function runSelfTest(
       type("ح");
       await paint();
       const writable = (editor.getBlocks()[0]?.text ?? "") !== before;
-      const restored = startup["restored"] ?? -1;
+      // كانت `restored` في أدلة المرحلتين ٧ و٨ — سُمّيت `caret` منذ
+      // إلغاء الاستئناف: لا شيء يُستعاد، والعلامة جاهزية المؤشر.
+      const caret = startup["caret"] ?? -1;
 
       if (!writable) {
         add(BUDGETS.openToCaret.id, BUDGETS.openToCaret.what, false, "المؤشر لا يقبل حرفًا");
-      } else if (restored < 0) {
+      } else if (caret < 0) {
         add(BUDGETS.openToCaret.id, BUDGETS.openToCaret.what, false, "لم تُلتقط علامات الإقلاع");
       } else {
-        const stages = ["surface", "prefs", "fonts", "restored"]
+        const stages = ["surface", "prefs", "fonts", "caret"]
           .filter((k) => k in startup)
           .map((k) => `${k} ${round(startup[k]!)}ms`)
           .join(" · ");
-        // القياس في وضع الفحص لا يمرّ بالاستئناف (الجلسة مفصولة حمايةً
-        // لمستندات المستخدم)، وكلفةُ الاستئناف محدودة بميزانية (هـ)
-        // المقيسة أدناه: ٣٢ms تعدادًا و١٠ms فتحًا من ٥٠٧ مستندات.
-        budget(BUDGETS.openToCaret, restored, `${stages} — بلا استئناف`);
+        // الإقلاع الحقيقي بلا استئناف منذ ADR ٠٠١٧ — كل تشغيل مساحة
+        // نظيفة، فالقياس هنا مطابق للمنتج لا تحفّظًا عليه.
+        budget(BUDGETS.openToCaret, caret, stages);
       }
     }
 
@@ -1291,8 +1298,7 @@ export async function runSelfTest(
 
   // ── ٩ · تنظيف ما خلّفه الفحص ───────────────────────────────
   // الفحص يكتب مستندات حقيقية ليختبر المسار الحقيقي، فيجب ألّا
-  // يتركها: مكتبة المستخدم ليست مكان ضجيج أداة، والاستئناف كان يفتح
-  // آخر مستند فحصٍ بدل نصّه.
+  // يتركها: مكتبة المستخدم ليست مكان ضجيج أداة.
   if (invoke) {
     try {
       const removed = await invoke<number>("cleanup_selftest");
