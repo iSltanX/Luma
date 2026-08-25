@@ -82,7 +82,7 @@
   {#each ROLES as r, i (r.id)}
     <button
       type="button"
-      class="tool"
+      class="tool luma-hit"
       class:on={role === r.id}
       aria-pressed={role === r.id}
       aria-label={r.name}
@@ -99,7 +99,7 @@
 
   <button
     type="button"
-    class="tool"
+    class="tool luma-hit"
     class:on={role === "quote"}
     aria-pressed={role === "quote"}
     aria-label="اقتباس كتلة"
@@ -121,7 +121,7 @@
 
   <button
     type="button"
-    class="tool strong"
+    class="tool strong luma-hit"
     class:on={strong}
     aria-pressed={strong}
     aria-label="وزن — تمييز داخل السطر"
@@ -135,7 +135,7 @@
 
   <button
     type="button"
-    class="tool"
+    class="tool luma-hit"
     aria-label="إحاطة بعلامة الاقتباس العربية"
     tabindex={focused === ROLES.length + 2 ? 0 : -1}
     data-quote
@@ -164,8 +164,13 @@
     box-shadow: var(--shadow-mid);
   }
   .tool {
+    /* الهدف اللمسي ٣٢ يبقى بصندوق الالتقاط (`.luma-hit`، §٥) — والمرسوم
+       ينحف إلى ٢٨ فلا يثقل الشريط رأسيًّا وحده دون سائر أزرار Luma
+       الصغيرة (`--size-btn-sm`، الزر الصغير ورقاقات المحرر المريح). */
+    position: relative;
+    isolation: isolate;
     inline-size: var(--size-hit);
-    block-size: var(--size-hit);
+    block-size: var(--size-btn-sm);
     display: inline-flex;
     align-items: center;
     justify-content: center;
@@ -182,10 +187,24 @@
     color: var(--text-primary);
   }
   /* إشارة شكل مع اللون — الشرح في `NavRow`. والحدّ الداخلي يتمايز عن
-     حلقة التركيز: تلك خارجية بإزاحة ٢px. */
+     حلقة التركيز: تلك خارجية بإزاحة ٢px.
+
+     الخلفية واللبد على شبه‌عنصر أضيق رأسيًّا من صندوق الزر، لا الزر
+     نفسه: بلغ الصندوق كاملًا كان محشورًا لا ساكنًا. القاعدة نصف قطر
+     الزر (`--radius-xs`)، والداخل = الخارج − الحشوة، فيبقيان مركَّزين
+     بصريًّا. `isolation: isolate` أعلاه يحصر `z-index` السالب داخل
+     الزر وحده فلا يرسم تحت طبقات الشريط أو الصفحة. */
   .tool.on {
-    background: var(--accent-subtle);
     color: var(--accent-text);
+  }
+  .tool.on::before {
+    content: "";
+    position: absolute;
+    z-index: -1;
+    inset-inline: 0;
+    inset-block: var(--space-002);
+    border-radius: calc(var(--radius-xs) - var(--space-002));
+    background: var(--accent-subtle);
     box-shadow: inset 0 0 0 1px var(--accent-graphic);
   }
   .tool:focus-visible {
