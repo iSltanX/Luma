@@ -41,6 +41,7 @@
     zenHidden = false,
     host = $bindable<HTMLElement | null>(null),
     scroller = $bindable<HTMLElement | null>(null),
+    onblankpointer,
     panel,
     notice,
     comfortBar,
@@ -83,6 +84,12 @@
     zenHidden?: boolean;
     host?: HTMLElement | null;
     scroller?: HTMLElement | null;
+    /**
+     * نقر أصاب صندوق الورقة نفسه لا عمود النص — هامشها الجانبي، إذ لا
+     * يتّسع عمود النص ليبلغه (`Luma.md`: عرض الورقة لا يتغيّر، §١٠).
+     * الإطار لا يعرف ProseMirror فيبثّ الإحداثيات ولا يفسّرها.
+     */
+    onblankpointer?: (clientX: number, clientY: number) => void;
     panel?: Snippet;
     notice?: Snippet;
     comfortBar?: Snippet;
@@ -190,7 +197,21 @@
       {#if notice}<div class="notice">{@render notice()}</div>{/if}
 
       <div class="scroller" bind:this={scroller}>
-        <div class="sheet">
+        <!-- نقرٌ أصاب صندوق الورقة نفسه — لا العمود ولا أي عنصر داخله —
+             يعني الهامش الجانبي: `e.target === e.currentTarget` وحدها
+             تميّزه، إذ يلتقط العمود نقره أصلًا حين يقع داخل حدوده.
+             `preventDefault` يمنع بدء سحب-تحديد على خلفية لا نص فيها.
+             `role="presentation"`: هذا صندوقٌ زخرفي، والمحرر الفعلي
+             القابل للوصول هو `.column` بداخله، ببطاقته الخاصة. -->
+        <div
+          class="sheet"
+          role="presentation"
+          onmousedown={(e) => {
+            if (e.target !== e.currentTarget || !onblankpointer) return;
+            e.preventDefault();
+            onblankpointer(e.clientX, e.clientY);
+          }}
+        >
           <div class="column" bind:this={host}></div>
         </div>
       </div>

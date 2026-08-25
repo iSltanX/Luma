@@ -371,6 +371,30 @@ export class EditorCore {
   }
 
   /**
+   * يضع المؤشر عند أقرب موضع نصّي من نقطة قد تقع خارج `view.dom` —
+   * الغلاف يجعل الورقة كلها منطقة نقر وإن كان صندوق التحرير الفعلي
+   * أضيق منها (هوامش جانبية، أسفل آخر سطر).
+   *
+   * تُحصر الإحداثيتان داخل حدود `view.dom` أولًا: `posAtCoords` خارج
+   * الحدود لا يضمن موضعًا، وحصرها يضمن السقوط دائمًا على أقرب نقطة
+   * حقيقية — نهاية المستند تحت آخر سطر، وأقرب موضع في السطر نفسه من
+   * جهته اليمنى أو اليسرى.
+   */
+  placeCaretNear(clientX: number, clientY: number): void {
+    const view = this.view;
+    if (!view) return;
+    const rect = view.dom.getBoundingClientRect();
+    if (rect.width === 0 || rect.height === 0) return;
+    const x = Math.min(Math.max(clientX, rect.left), rect.right - 1);
+    const y = Math.min(Math.max(clientY, rect.top), rect.bottom - 1);
+    const found = view.posAtCoords({ left: x, top: y });
+    if (!found) return;
+    const $pos = view.state.doc.resolve(found.pos);
+    view.dispatch(view.state.tr.setSelection(TextSelection.near($pos)));
+    view.focus();
+  }
+
+  /**
    * مستطيل التحديد الحالي في إحداثيات النافذة، أو `null` بلا تحديد.
    *
    * أساس موضع شريط التحديد: يظهر فوق النص المحدَّد ويختفي بزواله.

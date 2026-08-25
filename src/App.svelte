@@ -1092,6 +1092,7 @@
     zenHidden={comfort && prefs.zenEnabled && zenHidden}
     bind:host={hostEl}
     bind:scroller={scrollerEl}
+    onblankpointer={(x, y) => editor.placeCaretNear(x, y)}
   >
     {#snippet panel()}
       {#if surface === "library"}
