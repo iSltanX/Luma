@@ -449,15 +449,22 @@ export class EditorCore {
 
   // ── التراجع ──────────────────────────────────────────────
 
+  /**
+   * الحارس نفسه على إخوتها: `editable=false` يمنع التراجع كما يمنع
+   * الكتابة. كان غائبًا هنا — و`view.dispatch` لا يستشير `editable`
+   * بنفسه (ذاك حراسة أحداث DOM لا حراسة التحويلة) — فنداءٌ مباشر مثل
+   * ⌘Z أثناء نافذة «مغلق للتحرير» (رحلة `EditorSession`، أو معاينة
+   * السجل قبل أن تُعلن نفسها) كان يتراجع في مستندٍ يُفترض ألّا يُمسّ.
+   */
   undo(): boolean {
     const view = this.view;
-    if (!view) return false;
+    if (!view || !this.editable) return false;
     return undo(view.state, view.dispatch);
   }
 
   redo(): boolean {
     const view = this.view;
-    if (!view) return false;
+    if (!view || !this.editable) return false;
     return redo(view.state, view.dispatch);
   }
 

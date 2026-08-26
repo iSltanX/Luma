@@ -290,7 +290,10 @@ pub fn load_revision(
 pub struct RestoreResult {
     pub blocks: Vec<Block>,
     /// لقطة الحالة التي كانت قائمة قبل الاستعادة.
-    pub guard_revision_id: String,
+    ///
+    /// `None` حين لا تكون ثمّة حالة تستحق الحفظ: مستندٌ فارغ لا شبكة
+    /// أمان له، ولقطةٌ منه شَرَكٌ لا شبكة — انظر `restore_revision`.
+    pub guard_revision_id: Option<String>,
 }
 
 /// يستعيد نسخة **بعد حفظ الحالة الحالية أولًا**.
@@ -311,10 +314,10 @@ pub fn restore_revision(
 
     let mut doc = docs.load(&document_id).map_err(to_message)?;
 
-    // شبكة الأمان قبل أي تعديل — لو فشلت تُلغى الاستعادة كلها.
-    let guard = revs
-        .create(&doc, RevisionSource::BeforeRestore)
-        .map_err(to_message)?;
+    // شبكة الأمان قبل أي تعديل — والقاعدة في `create_guard` لا هنا:
+    // «لا شبكة لفراغ»، وموضعها هناك يجعلها مقيسة. ولو فشل إنشاؤها
+    // لمستند غير فارغ، تُلغى الاستعادة كلها.
+    let guard = revs.create_guard(&doc).map_err(to_message)?;
 
     doc.blocks = target.blocks.clone();
     doc.updated_at = now_ms();
@@ -322,7 +325,7 @@ pub fn restore_revision(
 
     Ok(RestoreResult {
         blocks: target.blocks,
-        guard_revision_id: guard.id,
+        guard_revision_id: guard.map(|g| g.id),
     })
 }
 
@@ -424,6 +427,39 @@ mod guards {
         assert!(
             offenders.is_empty(),
             "أمر متزامن يستدعي blocking_ — يتجمّد على الخيط الرئيسي: {offenders:?}"
+        );
+    }
+
+    /// **حارس §٩: القرار لا يُلتفّ عليه.**
+    ///
+    /// القاعدة نفسها («لا شبكة لفراغ») تعيش في `RevisionStore::create_guard`
+    /// وتُقاس بسلوكها هناك. وهذا يحرس شيئًا واحدًا: ألّا يعود أحدٌ
+    /// فينشئ `BeforeRestore` من طبقة الأوامر مباشرةً فيلتفّ عليها.
+    ///
+    /// **ويفحص غيابَ رمزٍ لا حضورَ نصّ** — عمدًا. سلفُه كان يطالب بوجود
+    /// `doc.is_empty()` في المصدر، وثبت أنه يبقى أخضر على أربع صياغات
+    /// تعيد العطل: شرطٌ مقلوب، وجملةٌ ميتة `let _ = doc.is_empty();`،
+    /// و`target_doc.is_empty()` يفحص المستند الخطأ، وتعليقٌ في ذيل سطر
+    /// (التصفية تُسقط ما **يبدأ** بـ`//` وحده). ومطابقةُ الغياب لا
+    /// تُخدَع بهذا: من كتب `BeforeRestore` هنا سقط، ومن لم يكتبها لا
+    /// سبيل له إلى إنشائها إلا عبر القاعدة.
+    #[test]
+    fn the_command_layer_never_creates_a_safety_snapshot_itself() {
+        let src = include_str!("commands.rs");
+        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
+        let code: String = code
+            .lines()
+            .filter(|l| !l.trim_start().starts_with("//"))
+            .collect::<Vec<_>>()
+            .join("\n");
+
+        assert!(
+            !code.contains("BeforeRestore"),
+            "طبقة الأوامر تنشئ شبكة أمان بنفسها — القاعدة في `create_guard` وحدها (§٩)"
+        );
+        assert!(
+            code.contains("create_guard"),
+            "لم تعد شبكة الأمان تمرّ بالقاعدة"
         );
     }
 

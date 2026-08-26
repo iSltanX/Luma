@@ -49,6 +49,31 @@ impl RevisionStore {
         Ok(before.abs_diff(after) >= MIN_CHANGE_CHARS)
     }
 
+    /// شبكة الأمان قبل استعادة — **ولا شبكة لفراغ**.
+    ///
+    /// «الاستعادة لا تمحو الحالة الحالية: تُحفظ ضمن السجل قبل تطبيق
+    /// النسخة المستعادة» — `Luma.md` §٩ **ثابت**. والمستند الفارغ لا
+    /// حالةَ فيه تُمحى، فلقطته لا تحفظ شيئًا — لكنها تدخل السجل صفًّا
+    /// اسمه «نسخة أمان قبل استعادة — ٠ كلمة»، **ولا يُقصّ أبدًا**
+    /// (`prune` يستثني `BeforeRestore`). فيبقى إلى الأبد يعد بما لا
+    /// يملك: من ضغط «استعادة» عليه — وهو عين ما يعد به اسمه — أفرغ
+    /// مستنده. شبكة الأمان تصير شَرَكًا، وهو نقيض §٩ لا تحقيقٌ له.
+    ///
+    /// **والقاعدة هنا لا في طبقة الأوامر.** كانت شرطًا في
+    /// `restore_revision`، وذاك أمرٌ يحتاج `State<Storage>` فلا يُبنى
+    /// في اختبار وحدة — فلم يحرسه إلا مطابقةُ نصٍّ في المصدر، وثبت
+    /// أنها تبقى خضراء على أربع صياغات تعيد العطل. موضعها هنا يجعلها
+    /// **مقيسة**، وبجوار `should_snapshot` الذي يرفض الفارغ بالمعيار
+    /// نفسه: قاعدة واحدة لا اثنتان.
+    ///
+    /// **يُبلّغ:** `None` حين لا شبكة — أي حين لا شيء يُحفظ.
+    pub fn create_guard(&self, doc: &Document) -> Result<Option<RevisionSummary>> {
+        if doc.is_empty() {
+            return Ok(None);
+        }
+        Ok(Some(self.create(doc, RevisionSource::BeforeRestore)?))
+    }
+
     pub fn create(&self, doc: &Document, source: RevisionSource) -> Result<RevisionSummary> {
         let created_at = now_ms();
         // المعرّف من الطابع الزمني: يجعل الترتيب المعجمي ترتيبًا زمنيًا
@@ -216,6 +241,57 @@ mod tests {
     fn empty_document_never_snapshots() {
         let s = store("empty");
         assert!(!s.should_snapshot(&doc("   ")).unwrap());
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    /// **لا شبكة أمان من فراغ** — القاعدة نفسها، مقيسة على القرار.
+    ///
+    /// كان الشرط في `restore_revision`، ولم يحرسه إلا مطابقةُ نصٍّ في
+    /// المصدر — وثبت أنها تبقى خضراء على أربع صياغات تعيد العطل
+    /// (شرطٌ مقلوب، وجملةٌ ميتة، ومتغيّرٌ آخر ينتهي بـ`doc`، وتعليقٌ في
+    /// ذيل سطر). فنُقلت القاعدة هنا لتُقاس بسلوكها.
+    #[test]
+    fn a_safety_snapshot_is_never_made_from_an_empty_document() {
+        let s = store("guard-empty");
+        for text in ["", "   ", "\n\t "] {
+            assert!(
+                s.create_guard(&doc(text)).unwrap().is_none(),
+                "أُنشئت شبكة أمان من فراغ: {text:?}"
+            );
+        }
+        assert!(s.list().unwrap().is_empty(), "دخل السجلَّ صفٌّ فارغ");
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    /// ولمستندٍ فيه نصّ تُنشأ الشبكة فعلًا — القاعدة تمنع الفراغ لا الأمان.
+    #[test]
+    fn a_safety_snapshot_is_made_for_a_document_with_text() {
+        let s = store("guard-text");
+        let made = s.create_guard(&doc("نصّ يستحق شبكة")).unwrap();
+        assert!(made.is_some(), "لم تُنشأ شبكة لمستند فيه نصّ");
+        let list = s.list().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].source, RevisionSource::BeforeRestore);
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    /// **وما يدخل شبكةَ أمان لا يُقصّ أبدًا** — ولذلك لا يجوز أن يدخل
+    /// فارغًا: صفٌّ يعد بما لا يملك، باقٍ إلى الأبد.
+    #[test]
+    fn a_safety_snapshot_survives_pruning_forever() {
+        let s = store("guard-prune");
+        s.create_guard(&doc("شبكة أمان")).unwrap();
+        for i in 0..(MAX_REVISIONS + 5) {
+            s.create(&doc(&format!("نصّ {i}")), RevisionSource::Automatic)
+                .unwrap();
+        }
+        assert!(
+            s.list()
+                .unwrap()
+                .iter()
+                .any(|r| r.source == RevisionSource::BeforeRestore),
+            "قُصّت شبكة الأمان"
+        );
         let _ = fs::remove_dir_all(&s.dir);
     }
 

@@ -632,7 +632,7 @@ export async function runSelfTest(
       if (!target) throw new Error("لا لقطة أولى");
       const restored = await invoke<{
         blocks: Array<{ text: string }>;
-        guardRevisionId: string;
+        guardRevisionId: string | null;
       }>("restore_revision", { documentId: rid, revisionId: target.id });
 
       const revsAfter = await invoke<Array<{ id: string; source: string }>>(

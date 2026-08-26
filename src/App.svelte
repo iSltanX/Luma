@@ -539,7 +539,6 @@
    */
   async function newDocument() {
     if (!session) return;
-    exitPreview();
     try {
       await session.startNew();
     } catch (e) {
@@ -547,6 +546,12 @@
       fail("تعذّر بدء نصّ جديد", e);
       return;
     }
+    // **بعد المغادرة لا قبلها.** `startNew()` تمرّ بالطابور نفسه الذي
+    // تمرّ به `preview()`/`restore()` (`session.runExclusive`)، فقد
+    // كانت معاينةٌ قائمة أمامنا في الطابور واكتملت بينما ننتظر دورنا —
+    // عندها `previewId` صار صحيحًا **الآن** لا حين استُدعيت الدالة.
+    // إنهاؤها هنا يقرأ الحالة الصادقة لا حالةً سبقت انتظارنا.
+    exitPreview();
     problem = null;
     currentId = null;
     count = 0;
@@ -559,7 +564,6 @@
 
   async function openDocument(id: string) {
     if (!session || id === currentId) return;
-    exitPreview();
     try {
       await session.open(id);
     } catch (e) {
@@ -568,6 +572,8 @@
       fail("تعذّر فتح النص", e);
       return;
     }
+    // بعد الفتح لا قبله — الشرح في `newDocument` أعلاه.
+    exitPreview();
     problem = null;
     currentId = session.currentId;
     count = editor.wordCount;
@@ -595,20 +601,35 @@
       );
       return;
     }
+    const activeSession = session;
+    const activeInvoke = invoke;
     try {
-      const rev = await invoke<{ blocks: Block[]; createdAt: number }>(
-        "load_revision",
-        { documentId: currentId, revisionId: id },
-      );
-      previewId = id;
-      previewAt = rev.createdAt;
-      editor.setBlocks(rev.blocks);
-      editor.setEditable(false);
-      selection = false;
-      problem = null;
+      // **ضمن طابور المغادرات نفسه** — لا آلية قفل منفصلة بمعزل عن
+      // `open()`/`startNew()`. كانت `preview()` تُغلق الإدخال يدويًّا
+      // بلا طابور، فمن ضغط «نصّ جديد» أثناء رحلة `load_revision` كان
+      // `startNew()` يكتمل بمعزل تام، ثم يعود ردّ المعاينة متأخرًا
+      // فيستبدل محتوى المستند **الجديد** بنسخة قديمة لا صلة لها.
+      await activeSession.runExclusive(async () => {
+        // **يُغلَق الإدخال قبل الرحلة لا بعدها.** كان `setEditable(false)`
+        // بعد `load_revision`، فتبقى رحلة القرص كلها نافذةً يقبل فيها
+        // المحرر حرفًا يُمحى بعدها بلا أثر — والنقر على صفّ اللوحة لا
+        // يعصمه: WebKit يُبقي التحديد داخل `contenteditable`.
+        editor.setEditable(false);
+        const rev = await activeInvoke<{ blocks: Block[]; createdAt: number }>(
+          "load_revision",
+          { documentId: currentId, revisionId: id },
+        );
+        previewId = id;
+        previewAt = rev.createdAt;
+        editor.setBlocks(rev.blocks);
+        selection = false;
+        problem = null;
+      });
     } catch (e) {
       // «تعذُّر قراءة نسخة قديمة لا يؤثر في المستند الحالي» — §٩.
       // الخطأ محصور في تلك اللقطة: المحرر لم يُمسّ، والمعاينة لم تبدأ.
+      // ويعود الإدخال: لم تبدأ معاينة، فلا سبب لبقاء النص محجوبًا.
+      editor.setEditable(true);
       fail("تعذّرت قراءة هذه النسخة", e);
     }
   }
@@ -624,18 +645,47 @@
 
   async function restore(id: string) {
     if (!invoke || !session) return;
+
+    // **الاستعادة تستنزف الحفظ أولًا — كأخواتها.**
+    //
+    // كانت وحدها بين مسارات الاستبدال لا تقرأ جواب `flush`: تتّكل على
+    // استنزافٍ وقع في `preview()` قبل رحلة IPC كاملة. والمحرر يبقى
+    // قابلًا للكتابة في تلك الرحلة، فحرفٌ يقع فيها يدخل البُفر ثم
+    // **يُباد**: النواة تقرأ القرص فتحفظ لقطة أمان لا تحويه، ثم
+    // `adopt` يستبدل ما في الطابور بالكتل المستعادة. فيخرج الحرف من
+    // القرص واللقطة والبُفر وسجلّ التراجع معًا، بلا حدث ولا رسالة.
+    // وحالةُ الحفظ مخفيّة طوال المعاينة، فحتى فشلُ القرص لا يُرى.
+    const wrote = await session.flush();
+    if (!wrote.settled) {
+      fail(
+        "تعذّرت الاستعادة",
+        wrote.because === "refused"
+          ? "لم يصل نصّك الحالي إلى القرص، ولا يُستبدل نصٌّ غير محفوظ."
+          : "نصّك الحالي ما زال يصل القرص. أمهله لحظة ثم أعد المحاولة.",
+      );
+      return;
+    }
+
+    const activeSession = session;
+    const activeInvoke = invoke;
     restoring = true;
     try {
-      const result = await invoke<{ blocks: Block[] }>("restore_revision", {
-        documentId: currentId,
-        revisionId: id,
+      // **ضمن طابور المغادرات نفسه** — الشرح في `preview()` أعلاه:
+      // استعادةٌ في انتظار ردّ النواة يمكن أن تتشابك مع «نصّ جديد» أو
+      // «فتح مسودة» يبدآن في اللحظة نفسها بمعزل عن بعضهما، فيستبدل
+      // أحدهما ما فعله الآخر بلا حدث ولا رسالة.
+      await activeSession.runExclusive(async () => {
+        const result = await activeInvoke<{ blocks: Block[] }>("restore_revision", {
+          documentId: currentId,
+          revisionId: id,
+        });
+        previewId = null;
+        previewAt = null;
+        editor.setEditable(true);
+        activeSession.adopt(result.blocks);
+        count = editor.wordCount;
+        now = Date.now();
       });
-      previewId = null;
-      previewAt = null;
-      editor.setEditable(true);
-      session.adopt(result.blocks);
-      count = editor.wordCount;
-      now = Date.now();
       await refreshRevisions();
       problem = null;
       editor.focus();

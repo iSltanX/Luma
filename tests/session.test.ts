@@ -21,23 +21,28 @@ const block = (text: string): Block => ({ id: "b0", role: "body", text, marks: [
 interface EditorLike {
   getBlocks(): Block[];
   setBlocks(b: Block[]): void;
+  setEditable(enabled: boolean): void;
   focus(): void;
   readonly wordCount: number;
 }
 
 function fakeEditor(initial: Block[] = []) {
   let blocks = [...initial];
+  let editable = true;
   const editor: EditorLike = {
     getBlocks: () => blocks,
     setBlocks: (b: Block[]) => {
       blocks = [...b];
+    },
+    setEditable: (enabled: boolean) => {
+      editable = enabled;
     },
     focus: () => {},
     get wordCount() {
       return blocks.reduce((n, b) => n + b.text.split(/\s+/).filter(Boolean).length, 0);
     },
   };
-  return { blocks: () => blocks, editor };
+  return { blocks: () => blocks, editable: () => editable, editor };
 }
 
 function session(
@@ -395,5 +400,341 @@ describe("المستند الفارغ يُحذف عند مغادرته", () => {
 
     expect(s.currentId).not.toBeNull();
     expect(s.currentId).not.toBe(id);
+  });
+});
+
+/**
+ * ADR ٠٠١٨ الجذر ٤ — بين `flush()` وإتمام المغادرة نافذةٌ كان المحرر
+ * فيها حيًّا يقبل الكتابة، وحرفٌ يقع فيها يُمحى من الشاشة صامتًا
+ * ويهبط في مستندٍ لم يعد مفتوحًا. الإدخال يُغلق طوال المغادرة.
+ */
+describe("الإدخال يُغلق طوال رحلة المغادرة", () => {
+  it("open(): مغلق من بداية الرحلة حتى اكتمالها، ويعود مفتوحًا بعدها", async () => {
+    const e = fakeEditor([block("نصّ حيّ")]);
+    let sawDuringLoad: boolean | null = null;
+    const s = session(e, {
+      load: async () => {
+        sawDuringLoad = e.editable();
+        return { id: "آخر", title: null, blocks: [block("مستند آخر")], createdAt: 1 };
+      },
+    });
+
+    expect(e.editable()).toBe(true);
+    await s.open("آخر");
+
+    expect(sawDuringLoad).toBe(false);
+    expect(e.editable()).toBe(true);
+  });
+
+  it("startNew(): مغلق أثناء الحفظ، ويعود مفتوحًا بعد اكتمال البدء", async () => {
+    const e = fakeEditor([block("نصّ حيّ")]);
+    let sawDuringSave: boolean | null = null;
+    const s = session(e, {
+      save: async () => {
+        sawDuringSave = e.editable();
+      },
+    });
+
+    await s.startNew();
+
+    expect(sawDuringSave).toBe(false);
+    expect(e.editable()).toBe(true);
+  });
+
+  it("فشل المغادرة لا يُبقي الإدخال مغلقًا", async () => {
+    const e = fakeEditor([block("نصّ حيّ")]);
+    const s = session(e, {
+      save: async () => {
+        throw new Error("القرص ممتلئ");
+      },
+    });
+
+    await expect(s.startNew()).rejects.toThrow();
+    expect(e.editable()).toBe(true);
+  });
+});
+
+/**
+ * ADR ٠٠١٨ الجذر ٥ — الكتابة المؤجَّلة كانت تقرأ `explicitTitle` و
+ * `createdAt` **وقت التنفيذ** لا وقت الدفع. فحرفٌ يتيم يُدفع تحت
+ * معرّف مستندٍ يُغادَر، ثم تُنفَّذ كتابتُه بعد أن فُتح مستندٌ آخر —
+ * فيحمل عنوان الجديد وتاريخ إنشائه: إعادة تسمية صامتة لمستند لم
+ * يمسّه أحد. الدفاع: كل دفعة تحمل هويّة صاحبها منذ لحظتها.
+ */
+describe("الكتابة المؤجَّلة تحمل هويّة صاحبها لا هويّة مَن بعده", () => {
+  it("حرفٌ وقع أثناء فتح مسودة أخرى يُكتب بعنوان المغادَر لا عنوان الجديد", async () => {
+    const writes: Array<{ id: string; title: string | null; createdAt: number | null }> = [];
+    let releaseLoad: (() => void) | undefined;
+    let loadStarted: (() => void) | undefined;
+    const loadStartedPromise = new Promise<void>((r) => (loadStarted = r));
+    const e = fakeEditor([block("نصّ المستند الأول")]);
+    const s = session(e, {
+      save: async (p: unknown) => {
+        const w = p as { id: string; title: string | null; createdAt: number | null };
+        writes.push({ id: w.id, title: w.title, createdAt: w.createdAt });
+      },
+      load: async () => {
+        // إشارةٌ صريحة لدخول الرحلة — لا تخمينَ لعدد الدورات المجهرية
+        loadStarted?.();
+        await new Promise<void>((r) => (releaseLoad = r));
+        return { id: "ب", title: "عنوان ب", blocks: [block("متن ب")], createdAt: 999 };
+      },
+    });
+
+    s.setTitle("عنوان أ");
+    const oldId = s.currentId!;
+    await s.flush(); // يستقرّ المستند الأول قبل بدء الفتح
+    // ما استقرّ للتوّ ليس موضوع الاختبار — الحرف اليتيم وحده الآن
+    writes.length = 0;
+
+    const opening = s.open("ب");
+    await loadStartedPromise; // ننتظر دخول الرحلة فعلًا
+
+    // حرفٌ يقع أثناء الرحلة — قبل أن تتغيّر هويّة الجلسة إلى «ب»
+    s.handleChange([block("نصّ المستند الأول وحرفٌ إضافي")]);
+
+    releaseLoad?.(); // تكتمل الرحلة: الهويّة تصير «ب» الآن
+    await opening;
+
+    // الحرف اليتيم يُستنزف الآن — بعد أن صار العنوان الحيّ «عنوان ب»
+    await s.flush();
+
+    expect(writes).toHaveLength(1); // كتابةٌ واحدة فقط: الحرف اليتيم
+    const orphan = writes[0]!;
+    expect(orphan.id).toBe(oldId); // على معرّف المغادَر — لا «ب»
+    expect(orphan.title).toBe("عنوان أ"); // لا «عنوان ب»
+    expect(orphan.createdAt).not.toBe(999);
+  });
+
+  /**
+   * الاكتشاف الثاني — الهويّة الصحيحة لا تعني الوصول. `Autosave.pending`
+   * خانة واحدة غير مفهرَسة، وأول حرف شرعي في المستند الجديد يستبدلها
+   * فورًا. **لا استدعاء يدويّ لـ`flush()` هنا عمدًا** — هذا بالضبط ما
+   * يُختبر: هل يصل اليتيم من تلقاء نفسه قبل أن يُتاح للكاتب الكتابة
+   * من جديد؟ الحارس السابق كان يستدعي `flush()` يدويًّا بعد المغادرة،
+   * فيُخفي هذا السؤال بدل أن يجيب عنه.
+   */
+  it("الحرف اليتيم يصل القرص من تلقاء نفسه — قبل أن يستبدله أول حرفٍ شرعي", async () => {
+    const writes: Array<{ id: string; blocks: unknown }> = [];
+    let releaseLoad: (() => void) | undefined;
+    let loadStarted: (() => void) | undefined;
+    const loadStartedPromise = new Promise<void>((r) => (loadStarted = r));
+    const e = fakeEditor([block("نصّ المستند الأول")]);
+    const s = session(e, {
+      save: async (p: unknown) => {
+        const w = p as { id: string; blocks: unknown };
+        writes.push({ id: w.id, blocks: w.blocks });
+      },
+      load: async () => {
+        loadStarted?.();
+        await new Promise<void>((r) => (releaseLoad = r));
+        return { id: "ب", title: null, blocks: [block("متن ب")], createdAt: 999 };
+      },
+    });
+
+    const oldId = s.currentId!;
+    await s.flush();
+    writes.length = 0;
+
+    const opening = s.open("ب");
+    await loadStartedPromise;
+
+    // حرفٌ يتيم يقع أثناء الرحلة — قبل أن تتغيّر الهويّة إلى «ب»
+    s.handleChange([block("نصّ المستند الأول وحرفٌ إضافي")]);
+
+    releaseLoad?.();
+    await opening; // الإدخال يُفتح الآن — يُفترض أن اليتيم وصل بالفعل
+
+    // أول حرفٍ شرعي في المستند الجديد — فورًا، كما يفعل كاتبٌ حقيقي
+    s.handleChange([block("أول حرفٍ في ب")]);
+    await s.flush(); // يستنزف كتابة «ب» الشرعية وحدها
+
+    // اليتيم كان يجب أن يصل **قبل** هذه الكتابة — لا أن تُهمله
+    const orphan = writes.find((w) => w.id === oldId);
+    expect(orphan).toBeDefined();
+    expect(orphan!.blocks).toEqual([block("نصّ المستند الأول وحرفٌ إضافي")]);
+
+    const legit = writes.find((w) => w.id === "ب");
+    expect(legit).toBeDefined();
+  });
+});
+
+/**
+ * ADR ٠٠١٨ الجذر ٦ — لا حارس إعادة دخول على «نصّ جديد» و«فتح مسودة»:
+ * نقرتان متتاليتان كانتا تتشابكان على الحالة نفسها. المغادرات تُنفَّذ
+ * بالترتيب — لا تُسقَط ولا تتشابك.
+ */
+describe("لا تتشابك مغادرتان على جلسة واحدة", () => {
+  it("فتح مسودة ثم نصّ جديد قبل اكتمال الأول: يُنفَّذان بالترتيب لا متشابكين", async () => {
+    const e = fakeEditor([block("نصّ أ")]);
+    let releaseLoad: (() => void) | undefined;
+    let loadStarted: (() => void) | undefined;
+    const loadStartedPromise = new Promise<void>((r) => (loadStarted = r));
+    const order: string[] = [];
+    const s = session(e, {
+      load: async (id: string) => {
+        order.push(`load-start:${id}`);
+        loadStarted?.();
+        await new Promise<void>((r) => (releaseLoad = r));
+        order.push(`load-end:${id}`);
+        return { id, title: null, blocks: [block(`متن ${id}`)], createdAt: 1 };
+      },
+    });
+
+    const opening = s.open("ب"); // يبدأ ثم يعلَّق داخل `load`
+    await loadStartedPromise; // ننتظر دخول الرحلة فعلًا — لا نخمّن عدد الدورات
+    expect(order).toEqual(["load-start:ب"]);
+
+    const startingNew = s.startNew(); // يُطلب أثناء انتظار الأول
+
+    // «فتح ب» لم يكتمل بعد، فـ«نصّ جديد» ينتظر دوره ولا يبدأ منطقه —
+    // نمنح فرصًا متعددة كي يظهر الخطأ لو كان الحارس غائبًا
+    for (let i = 0; i < 5; i += 1) await Promise.resolve();
+    expect(order).toEqual(["load-start:ب"]);
+
+    releaseLoad?.();
+    await opening;
+    await startingNew;
+
+    // اكتمل «فتح ب» أولًا تمامًا، ثم بدأ «نصّ جديد» بعده — لا تشابك
+    expect(order).toEqual(["load-start:ب", "load-end:ب"]);
+    expect(s.currentId).toBeNull(); // آخر طلب فاز: مساحة نظيفة
+    expect(e.blocks()).toEqual([]); // لا محتوى «ب» تسرّب إلى الشاشة
+  });
+});
+
+/**
+ * مراجعة خصومية لإصلاح الجذور ٤/٥/٦ كشفت أن `runTransition` نفسها —
+ * الآلية التي حملت الإصلاح — تحمل عطلين: رمية غير متوقّعة من
+ * `setEditable` تُجمّد الطابور إلى الأبد (لا شيء آخر يحلّ وعده)،
+ * و`dispose()` لا تمنع مغادرةً جديدة من «النجاح» صامتًا بلا حفظ.
+ */
+describe("طابور المغادرات لا يتجمّد ولا ينجح صامتًا بعد الإغلاق", () => {
+  it("رمية من setEditable لا تمنع الإفراج عن الطابور — والمغادرة التالية تُنفَّذ", async () => {
+    let blocks: Block[] = [block("نصّ")];
+    let throwOnEnable = true;
+    const editor = {
+      getBlocks: () => blocks,
+      setBlocks: (b: Block[]) => {
+        blocks = [...b];
+      },
+      setEditable: (enabled: boolean) => {
+        if (enabled && throwOnEnable) {
+          throwOnEnable = false;
+          throw new Error("عطل داخلي غير متوقّع من ProseMirror");
+        }
+      },
+      focus: () => {},
+      get wordCount() {
+        return 0;
+      },
+    };
+    const s = new EditorSession({
+      editor: editor as never,
+      bridge: {
+        save: async () => {},
+        load: async () => ({ id: "x", title: null, blocks: [], createdAt: 1 }),
+        remove: async () => {},
+      } as never,
+      onSaveState: () => {},
+    });
+
+    // المغادرة الأولى تفشل عند إعادة التمكين — لكن الطابور لا يتجمّد
+    await expect(s.startNew()).rejects.toThrow("عطل داخلي غير متوقّع");
+
+    // ومغادرةٌ ثانية يجب أن تُنفَّذ فعلًا لا أن تعلق إلى الأبد
+    await expect(s.startNew()).resolves.toBeUndefined();
+  });
+
+  it("بعد dispose(): مغادرة جديدة تفشل بصراحة لا بنجاح كاذب", async () => {
+    const e = fakeEditor([block("نصّ")]);
+    const save = vi.fn().mockResolvedValue(undefined);
+    const s = session(e, { save });
+    await s.flush(); // لا شيء معلَّق الآن — فلا يفشل flush() لعلّة أخرى
+    s.dispose();
+
+    await expect(s.startNew()).rejects.toThrow();
+    // ولم يُستبدل شيء: البُفر كما كان قبل محاولة المغادرة
+    expect(e.blocks()[0]!.text).toBe("نصّ");
+  });
+});
+
+/**
+ * ADR ٠٠١٨ — اكتشاف بعد إصلاح الجذور ٤/٥/٦: `preview()`/`restore()`
+ * في `App.svelte` كانتا آليةَ قفلٍ منفصلة عن `runTransition`، لا تعرف
+ * كل منهما بالأخرى. `runExclusive` تُشغّل عملًا خارجيًا ضمن الطابور
+ * نفسه — والحارس هنا يثبّت ذلك من طرف الجلسة، حيث تعيش الضمانة فعلًا.
+ */
+describe("runExclusive تشارك الطابور مع open()/startNew() — لا تتشابك معاينة مع مغادرة", () => {
+  it("مغادرة أثناء عمل خارجيّ معلَّق: تنتظر دورها ولا تتشابك", async () => {
+    const e = fakeEditor([block("نصّ أ")]);
+    let releaseExternal: (() => void) | undefined;
+    let externalStarted: (() => void) | undefined;
+    const externalStartedPromise = new Promise<void>((r) => (externalStarted = r));
+    const order: string[] = [];
+    // `load` نفسها تُسجَّل في `order` — فالإثبات أن `open()` لم يبدأ
+    // منطقه إطلاقًا لا أنه «لم يكتمل بعد عدد كذا من الدورات»، وهو فرقٌ
+    // جوهري: سلسلة `flush()` الداخلية (طابور `Autosave` الخاص بها)
+    // تحتاج دوراتٍ مجهرية عدّة بذاتها، فعدُّها يخلط سبب الانتظار.
+    const s = session(e, {
+      load: async (id: string) => {
+        order.push(`load-start:${id}`);
+        return { id, title: null, blocks: [], createdAt: 1 };
+      },
+    });
+
+    const external = s.runExclusive(async () => {
+      order.push("external-start");
+      externalStarted?.();
+      await new Promise<void>((r) => (releaseExternal = r));
+      order.push("external-end");
+      return "نتيجة العمل الخارجي";
+    });
+    await externalStartedPromise;
+    expect(order).toEqual(["external-start"]);
+
+    const opening = s.open("ب"); // يُطلب أثناء انتظار العمل الخارجي
+
+    // فرصٌ مجهرية وافرة — أكثر بكثير ممّا تحتاجه سلسلة `flush()`
+    // الداخلية وحدها — كي لا يُخطئ الحارس فيظنّ التأخّر الطبيعي حظرًا
+    for (let i = 0; i < 50; i += 1) await Promise.resolve();
+    // لم تُستدعَ `load` إطلاقًا: `open()` لم يبدأ منطقه، ينتظر دوره
+    expect(order).toEqual(["external-start"]);
+    expect(s.currentId).not.toBe("ب");
+
+    releaseExternal?.();
+    await expect(external).resolves.toBe("نتيجة العمل الخارجي");
+    await opening;
+
+    // اكتمل العمل الخارجي أولًا تمامًا، ثم بدأ الفتح بعده — لا تشابك
+    expect(order).toEqual(["external-start", "external-end", "load-start:ب"]);
+    expect(s.currentId).toBe("ب");
+  });
+
+  it("عملٌ خارجيّ لا يمسّ editable — يبقى كما تركه صاحبه بعد اكتماله", async () => {
+    const e = fakeEditor([block("نصّ")]);
+    const s = session(e, {});
+
+    await s.runExclusive(async () => {
+      e.editor.setEditable(false); // كما تفعل `preview()` قبل الرحلة
+    });
+
+    // `runExclusive` لا تُعيد `editable` إلى `true` من تلقاء نفسها —
+    // بخلاف `runTransition`: صاحب العمل (المعاينة) يقرر متى تعود
+    expect(e.editable()).toBe(false);
+  });
+
+  it("عملٌ خارجيّ يفشل لا يُبقي الطابور معلَّقًا لما بعده", async () => {
+    const e = fakeEditor([block("نصّ")]);
+    const s = session(e, {});
+
+    await expect(
+      s.runExclusive(async () => {
+        throw new Error("تعذّرت قراءة النسخة");
+      }),
+    ).rejects.toThrow("تعذّرت قراءة النسخة");
+
+    // مغادرةٌ تالية تُنفَّذ فعلًا — الطابور لم يتجمّد على الفشل
+    await expect(s.startNew()).resolves.toBeUndefined();
   });
 });

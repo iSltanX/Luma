@@ -65,7 +65,12 @@ export interface SessionOptions {
 export class EditorSession {
   private editor: EditorCore;
   private bridge: Bridge;
-  private autosave: Autosave<{ id: string; blocks: Block[] }>;
+  private autosave: Autosave<{
+    id: string;
+    blocks: Block[];
+    title: string | null;
+    createdAt: number | null;
+  }>;
   private onSaveState: (s: SaveState) => void;
   private onTitleChange: ((t: string) => void) | undefined;
 
@@ -75,6 +80,17 @@ export class EditorSession {
   /** آخر حالة أُبلغ عنها — تبقى في الذاكرة ولو فشل القرص. */
   private buffer: Block[] = [];
 
+  /**
+   * طابور المغادرات — **مغادرة واحدة تعمل في كل لحظة**.
+   *
+   * الجذر السادس: «نصّ جديد» و«فتح مسودة» كانا بلا حارس إعادة دخول،
+   * فنقرتان متتاليتان تتشابكان على الحالة نفسها. الطلبات هنا تُنفَّذ
+   * بالترتيب لا تُسقَط — كأن كل نقرة انتظرت اكتمال التي قبلها فعلًا.
+   */
+  private transition: Promise<void> = Promise.resolve();
+  /** أُغلقت الجلسة — مغادرةٌ جديدة بعدها تفشل بصراحة لا بنجاحٍ كاذب. */
+  private disposed = false;
+
   constructor(opts: SessionOptions) {
     this.editor = opts.editor;
     this.bridge = opts.bridge;
@@ -82,13 +98,14 @@ export class EditorSession {
     this.onTitleChange = opts.onTitleChange;
 
     this.autosave = new Autosave({
-      write: async ({ id, blocks }) => {
-        await this.bridge.save({
-          id,
-          title: this.explicitTitle,
-          blocks,
-          createdAt: this.createdAt,
-        });
+      // **العنوان و`createdAt` يصلان في الحمولة — لا يُقرآن حيّين هنا.**
+      //
+      // كانا يُقرآن من `this` وقت التنفيذ لا وقت الدفع، فكتابةٌ مؤجَّلة
+      // من مستند غادره الكاتب تهبط بعد أن يفتح غيره حاملةً **عنوانه
+      // وتاريخ إنشائه هو** — إعادة تسمية صامتة لمستند لم يمسّه أحد
+      // (الجذر ٥). كل دفعة تحمل هويّة صاحبها منذ لحظتها لا لحظة كتابتها.
+      write: async ({ id, blocks, title, createdAt }) => {
+        await this.bridge.save({ id, title, blocks, createdAt });
       },
       onState: (s) => this.onSaveState(s),
     });
@@ -174,6 +191,116 @@ export class EditorSession {
   }
 
   /**
+   * طابورٌ خالص — لا يلمس `editable`. الأساس الذي يبنى عليه
+   * `runTransition` (لـ`open`/`startNew`) و`runExclusive` العامة
+   * (لمستهلكين خارج الجلسة يحتاجون القفل نفسه — المعاينة والاستعادة).
+   *
+   * **جلسةٌ أُغلقت لا تنجح بصمت.** بلا فحص `disposed`، `flush()` على
+   * `autosave` مُتصرَّفٍ عنه يعيد `settled` فورًا (لا `pending` بعد
+   * التصرّف)، فيمرّ العمل كاملًا — يستبدل المحتوى فعلًا — وكل كتابة
+   * تالية تصل `push()` الذي يتجاهلها صامتًا: جلسة تبدو حيّة تمامًا
+   * ولا تحفظ حرفًا واحدًا بعد الآن.
+   *
+   * **`release()` يصل مهما رمى `fn()`.** هي وحدها ما يحلّ وعد
+   * `this.transition`، وكل نداء تالٍ لأي عمل حصريّ ينتظره — فلو تعطّل
+   * وصولها لتجمّد كل تنقّل بين المستندات إلى نهاية الجلسة.
+   */
+  private async withQueue<T>(fn: () => Promise<T>): Promise<T> {
+    const prev = this.transition;
+    let release!: () => void;
+    this.transition = new Promise((r) => (release = r));
+    await prev;
+    try {
+      if (this.disposed) throw new Error("الجلسة أُغلقت، فلم يُنفَّذ العمل");
+      return await fn();
+    } finally {
+      release();
+    }
+  }
+
+  /**
+   * يُشغّل مغادرةً واحدة، ولا يبدأ التالية إلا بعد اكتمالها. يُغلق
+   * الإدخال طوال العمل ويعيده بعده — **للحظة العملية وحدها**، بخلاف
+   * `runExclusive` التي لا تلمس `editable` (المعاينة تريده مغلقًا
+   * حتى `exitPreview()` لا حتى عودة رحلتها).
+   *
+   * **الجذر الرابع** — بين `flush()` وإتمام المغادرة نافذةٌ كان المحرر
+   * فيها حيًّا يقبل الكتابة (والنقر على زرّ الشريط لا يعصمه: WebKit
+   * يُبقي التحديد داخل `contenteditable`). حرفٌ يقع فيها كان يُدفع تحت
+   * المعرّف المغادَر، ثم يمحوه `setBlocks` من الشاشة بلا حدث ولا رسالة،
+   * ويهبط بعد حين في مستندٍ لم يعد مفتوحًا. الإدخال يُغلق طوال المغادرة
+   * فلا تُفتح تلك النافذة من أصلها — والالتقاط في `handleChange` (أعلاه)
+   * دفاعٌ ثانٍ: لو أفلت حرفٌ رغم هذا (كتراجعٍ عبر ⌘Z يتجاوز `editable`
+   * مباشرة — ثغرةٌ أُغلقت في `EditorCore.undo`/`redo`)، حمل هويّة
+   * صاحبه الصحيحة في حمولة `autosave.push`، **ووصولها مضمون**: خانة
+   * `Autosave.pending` واحدة غير مفهرَسة كان أول حرف شرعي في المستند
+   * الجديد يستبدلها فتُهمَل حمولة اليتيم صامتًا — سُدّ هذا بتفريغٍ
+   * أخير قبل إعادة فتح الإدخال (أسفله في `runTransition`)، فتصل قبل
+   * أن تُزاحمها كتابةٌ جديدة. مكشوفٌ ومسجَّل في
+   * [ADR ٠٠١٨](../../docs/decisions/0018-latent-data-loss-roots.md).
+   *
+   * **والجذر السادس** — لا حارس إعادة دخول على «نصّ جديد» و«فتح
+   * مسودة»: نقرتان متتاليتان (فتح مسودة معلَّق، ثم نصّ جديد) كانتا
+   * تتشابكان على الحالة نفسها. الطابور هنا لا يُسقط طلبًا: كل نقرة
+   * تنتظر دورها كأنها وقعت بعد اكتمال التي قبلها تمامًا.
+   */
+  private async runTransition<T>(fn: () => Promise<T>): Promise<T> {
+    return this.withQueue(async () => {
+      // **`setEditable(true)` مفصولة عن `release()`.** كانتا نداءين
+      // متتاليين في كتلة `finally` واحدة؛ لو رمت الأولى استثناءً داخليًّا
+      // من ProseMirror، كانت الثانية (`release()`، في `withQueue`) لا
+      // تصل — والطابور يتجمّد إلى الأبد. الفصل هنا يضمن وصولها مهما رمى.
+      try {
+        this.editor.setEditable(false);
+        return await fn();
+      } finally {
+        // **تفريغٌ أخير قبل إعادة فتح الإدخال — الاكتشاف الثاني بعد
+        // إصلاح الجذور ٤/٥/٦.**
+        //
+        // لو أفلت حرفٌ من إغلاق `editable` رغم كل شيء (لا مسار معروف
+        // اليوم بعد إغلاق ثغرة `undo`/`redo`، لكنه دفاعٌ في العمق لا
+        // يفترض معرفة كل المسارات)، فإنه يدخل `handleChange` قبل أن
+        // يتغيّر `documentId` — لا بعده: لا `await` يقع بين تصفير/تبديل
+        // `documentId` وعودة `fn()`، فما يُدفع أثناء المغادرة يحمل
+        // هويّة المستند **المغادَر** حتمًا، والجذر ٥ يضمن صحّتها في
+        // حمولة `push`.
+        //
+        // لكن الهويّة الصحيحة لا تعني **الوصول**: `Autosave.pending`
+        // خانة واحدة غير مفهرَسة، وأول حرف شرعي يكتبه الكاتب في
+        // المستند الجديد بعد إعادة فتح الإدخال يستبدلها فورًا —
+        // فتُهمَل حمولة اليتيم صامتًا، ولو حملت هويّة صحيحة لن تصل
+        // أبدًا. هذا التفريغ يمنحها فرصتها الوحيدة: يقع والإدخال ما
+        // زال مغلقًا، فلا كتابة جديدة تزاحمها بعد. لا يُنتظر نجاحه
+        // ولا يُرفع فشله — `flush()` لا ترمي أصلًا، والمحاولات
+        // المجدولة تتكفّل بالباقي إن رفض القرص.
+        await this.autosave.flush();
+        this.editor.setEditable(true);
+      }
+    });
+  }
+
+  /**
+   * يُشغّل عملًا خارجيًا (معاينة أو استعادة) ضمن طابور المغادرات نفسه
+   * — فلا يتشابك مع فتح مسودة أو بدء نصّ جديد.
+   *
+   * **اكتُشف بمراجعة خصومية بعد إصلاح الجذور ٤/٥/٦:** `preview()`
+   * و`restore()` في `App.svelte` كانتا آليةَ قفلٍ مستقلة تمامًا —
+   * `setEditable(false)` يدويًّا، بلا طابور — لا تعرف بوجود
+   * `runTransition` ولا هو يعرف بوجودها. فمن يضغط «نصّ جديد» أثناء
+   * انتظار معاينة رحلتها كان `startNew()` يكتمل بمعزل تام، ثم يعود
+   * ردّ المعاينة متأخرًا فيستبدل محتوى المستند **الجديد** بنسخة قديمة
+   * لا صلة لها — بلا حدث ولا رسالة، ولافتة «للقراءة فقط» تكذّب محررًا
+   * صار قابلًا للكتابة فعلًا.
+   *
+   * **لا تلمس `editable`** بخلاف `runTransition`: صاحب العمل يتحكم فيه
+   * بنفسه لأن مدّة قفله تتجاوز نداءً واحدًا — تبقى المعاينة للقراءة
+   * حتى `exitPreview()`، لا حتى عودة رحلة التحميل وحدها.
+   */
+  async runExclusive<T>(fn: () => Promise<T>): Promise<T> {
+    return this.withQueue(fn);
+  }
+
+  /**
    * يفتح مستندًا آخر — **بعد حفظ الحالي أولًا**.
    *
    * «فتح نص سابق يستبدل المحتوى الحالي بعد حفظه تلقائيًا» — `Luma.md`
@@ -181,25 +308,28 @@ export class EditorSession {
    * ويبقى المستند الحالي كما هو في المحرر وفي الذاكرة.
    */
   async open(id: string): Promise<void> {
-    if (id === this.documentId) return;
-    // «الحفظ أولًا لا بالتوازي: لو فشل، لا يُستبدل شيء» — والجواب
-    // يُقرأ الآن بدل أن يُفترض، ويُقال سببُه كما هو لا كما يُظنّ.
-    const wrote = await this.flush();
-    if (!wrote.settled) throw new NotSettledError(wrote.because, "يُفتح غيره");
+    return this.runTransition(async () => {
+      // يُفحص هنا لا قبل الطابور: الحالة وقت التنفيذ لا وقت الطلب.
+      if (id === this.documentId) return;
+      // «الحفظ أولًا لا بالتوازي: لو فشل، لا يُستبدل شيء» — والجواب
+      // يُقرأ الآن بدل أن يُفترض، ويُقال سببُه كما هو لا كما يُظنّ.
+      const wrote = await this.flush();
+      if (!wrote.settled) throw new NotSettledError(wrote.because, "يُفتح غيره");
 
-    // ⚠️ **مغادرةٌ لا تكنس بعد** — `discardIfEmpty` مبنيّ وغير موصول.
-    // الوصل معلَّق على ثوابت تصطدم بالقرار ولم تُحسم ([ADR ٠٠١٨]):
-    // التالف الذي يُكتب فوقه، ولقطة الأمان الفارغة، والمعاينة التي لا
-    // يراها الفراغ. (وعقدُ `flush` كان رابعها ورُفع.) الوصل هنا سطرٌ
-    // واحد يوم تُحسم الثلاثة — ولا يُوصل قبلها: المحو نهائي ولا سلّة.
-    const doc = await this.bridge.load(id);
+      // ⚠️ **مغادرةٌ لا تكنس بعد** — `discardIfEmpty` مبنيّ وغير موصول.
+      // الوصل معلَّق على ثوابت تصطدم بالقرار ولم تُحسم ([ADR ٠٠١٨]):
+      // التالف الذي يُكتب فوقه، ولقطة الأمان الفارغة، والمعاينة التي لا
+      // يراها الفراغ. (وعقدُ `flush` كان رابعها ورُفع.) الوصل هنا سطرٌ
+      // واحد يوم تُحسم الثلاثة — ولا يُوصل قبلها: المحو نهائي ولا سلّة.
+      const doc = await this.bridge.load(id);
 
-    this.documentId = doc.id;
-    this.createdAt = doc.createdAt;
-    this.explicitTitle = doc.title;
-    this.buffer = doc.blocks;
-    this.editor.setBlocks(doc.blocks);
-    this.onTitleChange?.(this.displayTitle());
+      this.documentId = doc.id;
+      this.createdAt = doc.createdAt;
+      this.explicitTitle = doc.title;
+      this.buffer = doc.blocks;
+      this.editor.setBlocks(doc.blocks);
+      this.onTitleChange?.(this.displayTitle());
+    });
   }
 
   /**
@@ -211,15 +341,17 @@ export class EditorSession {
    * تُترك بلا كتابة لا تُخلّف ضجيجًا في المكتبة.
    */
   async startNew(): Promise<void> {
-    const wrote = await this.flush();
-    if (!wrote.settled) throw new NotSettledError(wrote.because, "يُبدأ غيره");
-    // ⚠️ مغادرةٌ لا تكنس بعد — الشرح عند `open()` أعلاه.
-    this.documentId = null;
-    this.createdAt = null;
-    this.explicitTitle = null;
-    this.buffer = [];
-    this.editor.setBlocks([]);
-    this.onTitleChange?.(this.displayTitle());
+    return this.runTransition(async () => {
+      const wrote = await this.flush();
+      if (!wrote.settled) throw new NotSettledError(wrote.because, "يُبدأ غيره");
+      // ⚠️ مغادرةٌ لا تكنس بعد — الشرح عند `open()` أعلاه.
+      this.documentId = null;
+      this.createdAt = null;
+      this.explicitTitle = null;
+      this.buffer = [];
+      this.editor.setBlocks([]);
+      this.onTitleChange?.(this.displayTitle());
+    });
   }
 
   /**
@@ -233,7 +365,12 @@ export class EditorSession {
     this.editor.setBlocks(blocks);
     this.onTitleChange?.(this.displayTitle());
     if (this.documentId) {
-      this.autosave.push({ id: this.documentId, blocks });
+      this.autosave.push({
+        id: this.documentId,
+        blocks,
+        title: this.explicitTitle,
+        createdAt: this.createdAt,
+      });
     }
   }
 
@@ -256,7 +393,12 @@ export class EditorSession {
     }
 
     this.onTitleChange?.(this.displayTitle());
-    this.autosave.push({ id: this.documentId, blocks });
+    this.autosave.push({
+      id: this.documentId,
+      blocks,
+      title: this.explicitTitle,
+      createdAt: this.createdAt,
+    });
   }
 
   /** عنوان صريح كتبه المستخدم. `null` يعيده إلى الاشتقاق من أول سطر. */
@@ -264,7 +406,12 @@ export class EditorSession {
     this.explicitTitle = title && title.trim() ? title.trim() : null;
     this.onTitleChange?.(this.displayTitle());
     if (this.documentId) {
-      this.autosave.push({ id: this.documentId, blocks: this.buffer });
+      this.autosave.push({
+        id: this.documentId,
+        blocks: this.buffer,
+        title: this.explicitTitle,
+        createdAt: this.createdAt,
+      });
     }
   }
 
@@ -289,6 +436,7 @@ export class EditorSession {
   }
 
   dispose(): void {
+    this.disposed = true;
     this.autosave.dispose();
   }
 }
