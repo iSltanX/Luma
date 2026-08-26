@@ -8,16 +8,21 @@
    * والرمز ١٦×١٦ — §١٣.
    */
   let {
-    name, label, active = false, disabled = false, onclick,
+    name, label, active = false, disabled = false, onclick, onmousedown,
   }: {
     name: IconName; label: string; active?: boolean;
     disabled?: boolean; onclick?: (e: MouseEvent) => void;
+    /**
+     * لمن يحتاج ألّا يسرق الزرُّ التركيز من النص: يُمرَّر
+     * `(e) => e.preventDefault()` — نمط `SelectionToolbar`.
+     */
+    onmousedown?: (e: MouseEvent) => void;
   } = $props();
 </script>
 
 <button
   type="button" class="ib" class:active aria-label={label}
-  aria-pressed={active ? "true" : undefined} {disabled} {onclick}
+  aria-pressed={active ? "true" : undefined} {disabled} {onclick} {onmousedown}
 >
   <Icon {name} decorative />
 </button>

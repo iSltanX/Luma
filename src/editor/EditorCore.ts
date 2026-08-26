@@ -64,6 +64,21 @@ export interface EditorCoreOptions {
    * والثانية تحتمل انزلاقًا.
    */
   onSelectionChange?: (docChanged: boolean) => void;
+  /**
+   * يُستدعى عند **كل** تغيّر في حالة المحرر — لعمق التراجع والإعادة.
+   *
+   * منفصل عن أخويه لأن سؤاله مختلف: `onChange` يسأل «هل تغيّر النص؟»
+   * و`onSelectionChange` «هل تحرّك المؤشر؟»، وهذا «هل تغيّر شيءٌ قد
+   * يُغيّر عمق المكدّس؟». والفرق ليس نظريًا — `setBlocks` **يمسح
+   * السجل ولا يُطلق أيًّا منهما**: لا `onChange` (استبدالٌ برمجي لا
+   * تحرير)، ولا `onSelectionChange` (يمرّ بـ`updateState` لا
+   * بـ`dispatch`). فمن بنى حالة الزرّين على أيٍّ منهما وجدهما مضيئين
+   * على مكدّسٍ صُفِّر للتوّ.
+   *
+   * ويُطلق من **موضعَي تغيّر الحالة كليهما** داخل النواة لا من
+   * مُستدعيها: قاعدةٌ بنيوية لا يمكن لمسارٍ جديد أن ينساها.
+   */
+  onHistoryChange?: () => void;
   /** تسمية مساحة الكتابة لقارئ الشاشة. */
   ariaLabel?: string;
 }
@@ -283,6 +298,9 @@ export class EditorCore {
         if (tr.docChanged || tr.selectionSet) {
           this.opts.onSelectionChange?.(tr.docChanged);
         }
+        // بلا شرط: التراجع نفسه لا يغيّر النص أحيانًا (خطوةٌ فارغة)
+        // ومع ذلك ينقل عمق المكدّس من `done` إلى `undone`.
+        this.opts.onHistoryChange?.();
       },
     });
   }
@@ -322,6 +340,9 @@ export class EditorCore {
     } finally {
       this.suppressChange = false;
     }
+    // **الموضع الثاني الذي تتغيّر فيه الحالة** — وهو الذي يمسح السجل.
+    // خارج `finally` عمدًا: لو رمى الاستبدال لم تتغيّر الحالة أصلًا.
+    this.opts.onHistoryChange?.();
   }
 
   get wordCount(): number {

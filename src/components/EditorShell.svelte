@@ -36,6 +36,10 @@
     oncomfort,
     ondelete,
     candelete = false,
+    onundo,
+    onredo,
+    canundo = false,
+    canredo = false,
     wordCount = 0,
     showWordCount = false,
     comfort = false,
@@ -66,6 +70,11 @@
     ondelete?: (() => void) | undefined;
     /** ثمّة مستندٌ يُحذف فعلًا. دونه الزرّ معطَّل. */
     candelete?: boolean;
+    /** تراجع وإعادة — `Luma.md` §٥ **ثابت**. */
+    onundo?: (() => void) | undefined;
+    onredo?: (() => void) | undefined;
+    canundo?: boolean;
+    canredo?: boolean;
     wordCount?: number;
     /** **مخفي افتراضيًا** ويظهر بطلب المستخدم — `Luma.md` §٥ **ثابت**. */
     showWordCount?: boolean;
@@ -167,6 +176,10 @@
       oncomfort={oncomfort ?? undefined}
       ondelete={ondelete ?? undefined}
       {candelete}
+      onundo={onundo ?? undefined}
+      onredo={onredo ?? undefined}
+      {canundo}
+      {canredo}
     />
   </div>
 

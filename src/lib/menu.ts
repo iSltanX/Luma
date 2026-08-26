@@ -29,3 +29,32 @@ export interface ScreenState {
 export function editingReaches(state: ScreenState): boolean {
   return !state.settings && !state.fontSheet && !state.preview;
 }
+
+/**
+ * هل يُضاء زرّ التراجع أو الإعادة؟ — `Luma.md` §٥، القرار ٤.
+ *
+ * «خافتان حين لا شيء يُتراجَع عنه، يضيئان حين يوجد. الحالة تتبع
+ * **مكدّس التراجع الفعلي** لا مجرّد وجود كتابة — زرٌّ مضيء لا يفعل
+ * شيئًا أسوأ من زرٍّ خافت.»
+ *
+ * ثلاثة شروط لا شرط واحد، وكلٌّ منها يجعل الضغط بلا أثر لو خولف:
+ *
+ * ١. **عمقٌ فعليّ** (`undoDepth`/`redoDepth` من `prosemirror-history`)
+ *    لا «هل كُتب شيء»: مستندٌ فُتح من المكتبة فيه ألف كلمة ومكدّسه
+ *    صفر، ومستندٌ كُتب فيه حرفان ثم تُرووجع عنهما فمكدّسه صفر كذلك.
+ * ٢. **الوصول** (`editingReaches`): المعاينة قراءةٌ فقط والإعدادات
+ *    تغطّي المحرر، و`EditorCore.undo` يرفض حين `editable=false` —
+ *    فزرٌّ مضيء فوقهما يعد بما لا يقع.
+ * ٣. **لا مغادرة جارية**: `runTransition` يغلق الإدخال طوال تبديل
+ *    المستند، فالتراجع فيه مرفوض كذلك.
+ *
+ * هنا لا في `App.svelte` للسبب نفسه الذي أخرج `editingReaches`:
+ * القاعدة تُختبر، ولا حزمة فحص تشغّل شريط الأسطح.
+ */
+export function historyReaches(
+  depth: number,
+  screen: ScreenState,
+  busy: boolean,
+): boolean {
+  return depth > 0 && editingReaches(screen) && !busy;
+}

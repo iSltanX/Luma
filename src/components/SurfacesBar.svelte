@@ -21,6 +21,10 @@
     oncomfort,
     ondelete,
     candelete = false,
+    onundo,
+    onredo,
+    canundo = false,
+    canredo = false,
   }: {
     entries: readonly SurfaceEntry[];
     active?: string | null;
@@ -33,6 +37,12 @@
     ondelete?: (() => void) | undefined;
     /** ثمّة مستندٌ يُحذف فعلًا. دونه الزرّ معطَّل: لا شيء يُحذف. */
     candelete?: boolean;
+    /** تراجع وإعادة — مدخل ثانٍ إلى مكدّس المحرر، §٥ **ثابت**. */
+    onundo?: (() => void) | undefined;
+    onredo?: (() => void) | undefined;
+    /** يتبعان **عمق المكدّس الفعلي** لا وجود الكتابة — `historyReaches`. */
+    canundo?: boolean;
+    canredo?: boolean;
   } = $props();
 
   /**
@@ -110,6 +120,52 @@
        غير قابل للتركيز، فموضعه في DOM لا يمسّ ترتيب Tab. -->
   <div class="quiet" style:order={entries.length + 4}></div>
 
+  {#if onundo}
+    <!-- **التراجع والإعادة بجوار الحذف** — `Luma.md` §٥ **ثابت**.
+         ترتيبهما من بداية القراءة: تراجعٌ فإعادةٌ فحذف، فيقع الحذف
+         «في أقصى الطرف» كما نصّ القرار، ويسبق التراجعُ الإعادةَ كما
+         يُقرآن. وترتيب DOM هو ترتيب Tab هنا، فهما يوافقان المرسوم.
+
+         **ولا يُعكس شكلهما مع RTL** (↶ ↷): دلالتهما زمنية لا اتجاهية،
+         بخلاف «رجوع» الذي يشير إلى اليمين لأنه ملاحة. وهما أيقونتان
+         متمايزتان لا واحدةٌ مقلوبة، فعكسهما — لو أُريد يومًا — تبديلُ
+         مسارَين لا قلبُ محور.
+
+         **مدخل ثانٍ إلى المكدّس الواحد** لا مكدّس ثانٍ: الحالة تتبع
+         `undoDepth`/`redoDepth` من `prosemirror-history` نفسه. -->
+    <!-- **`mousedown` مُلغى فلا يسرق الزرّ التركيز** — نمط
+         `SelectionToolbar` نفسه («لا يسرق التركيز: `mousedown` مُلغى،
+         فيبقى المؤشر والتحديد في النص»).
+
+         بدونه يقع إفسادُ نصّ حقيقي، أُعيد إنتاجه على WebKit: النقر
+         يُخرج التركيز من المحرر إلى `<body>` (وWebKit لا يُركّز الأزرار
+         بالنقر)، فينهار تحديد DOM إلى الإزاحة صفر — والتراجع نفسه صحيح،
+         لكن **أول حرف يُكتب بعده يُدسّ في رأس المستند**. وهو يصيب
+         بالضبط من بُني له الزرّان: «وصول فأري ظاهر لمن لا يعرف
+         الاختصار» (ADR ٠٠١٧ §٤). -->
+    <span data-undo style:order={entries.length + 5}>
+      <IconButton
+        name="undo"
+        label="تراجع"
+        disabled={!canundo}
+        onclick={onundo}
+        onmousedown={(e) => e.preventDefault()}
+      />
+    </span>
+  {/if}
+
+  {#if onredo}
+    <span data-redo style:order={entries.length + 6}>
+      <IconButton
+        name="redo"
+        label="إعادة"
+        disabled={!canredo}
+        onclick={onredo}
+        onmousedown={(e) => e.preventDefault()}
+      />
+    </span>
+  {/if}
+
   {#if ondelete}
     <!-- **أفعال المستند عند نهاية القراءة** — `Luma.md` §٥ **ثابت**:
          «في الطرف المقابل لمداخل الأسطح… ثلاثة أزرار حاضرة دائمًا،
@@ -137,7 +193,7 @@
          الترتيب أن يحلّ محلَّه **فعلٌ هادم**: من فتح لوحةً بلوحة
          المفاتيح ثم ضغط `Tab` ظانًّا أنه يدخلها كان يقف على «حذف
          النص». -->
-    <span data-delete-document style:order={entries.length + 5}>
+    <span data-delete-document style:order={entries.length + 7}>
       <IconButton
         name="delete"
         label="حذف النص"

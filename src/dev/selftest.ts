@@ -191,6 +191,139 @@ export async function runSelfTest(
     `بعد تراجع واحد بقي: «${afterOne}»`,
   );
 
+  // ── ٣أ · حالة زرّي التراجع والإعادة تتبع المكدّس الفعلي ─────
+  //
+  // القرار ٤ (`Luma.md` §٥ **ثابت**): «الحالة تتبع مكدّس التراجع
+  // الفعلي لا مجرّد وجود كتابة — زرٌّ مضيء لا يفعل شيئًا أسوأ من زرٍّ
+  // خافت». والقاعدة نفسها (`historyReaches`) مختبَرة في `menu.test.ts`
+  // بلا DOM؛ وهذا يقيس **مصدرها**: العمق كما يراه `prosemirror-history`
+  // في محرر حقيقي. لا حزمة وحدات في المشروع تركّب المحرر — لا بيئة DOM
+  // في vitest — فهنا موضع القياس الوحيد.
+  {
+    editor.setBlocks([{ id: "t3a", role: "body", text: "", marks: [] }]);
+    editor.focus();
+    await paint();
+    const fresh = { u: editor.undoDepth, r: editor.redoDepth };
+
+    type("نصٌّ يُتراجَع عنه");
+    await paint();
+    const afterType = { u: editor.undoDepth, r: editor.redoDepth };
+
+    editor.undo();
+    await paint();
+    const afterUndoStep = { u: editor.undoDepth, r: editor.redoDepth };
+
+    editor.redo();
+    await paint();
+    const afterRedoStep = { u: editor.undoDepth, r: editor.redoDepth };
+
+    // **الفتح يمسح السجل**: `setBlocks` يبني حالة جديدة، فالمستند
+    // المفتوح من المكتبة — ولو كان فيه ألف كلمة — مكدّسه صفر.
+    editor.setBlocks(buildLongDocument(50));
+    await paint();
+    const afterOpen = { u: editor.undoDepth, r: editor.redoDepth };
+
+    const ok =
+      fresh.u === 0 && fresh.r === 0 &&
+      afterType.u > 0 && afterType.r === 0 &&
+      // **`afterUndoStep.u === 0` هي البند كلّه، وكانت غائبة.**
+      // بدونها يمرّ زرُّ تراجعٍ يبقى مضيئًا إلى الأبد بعد أن يُفرغ
+      // الكاتب مكدّسه — وهو عين ما يمنعه القرار: «زرٌّ مضيء لا يفعل
+      // شيئًا أسوأ من زرٍّ خافت». كُشف بمراجعة خصومية على القرار ٤.
+      afterUndoStep.u === 0 && afterUndoStep.r > 0 &&
+      afterRedoStep.u > 0 && afterRedoStep.r === 0 &&
+      afterOpen.u === 0 && afterOpen.r === 0;
+
+    add(
+      "history-depth",
+      "عمق التراجع والإعادة يتبع المكدّس لا وجود الكتابة",
+      ok,
+      `فارغ ${fresh.u}/${fresh.r} — بعد كتابة ${afterType.u}/${afterType.r}` +
+        ` — بعد تراجع ${afterUndoStep.u}/${afterUndoStep.r}` +
+        ` — بعد إعادة ${afterRedoStep.u}/${afterRedoStep.r}` +
+        ` — بعد فتح مستند ${afterOpen.u}/${afterOpen.r}`,
+    );
+  }
+
+  // ── ٣أ٢ · الزرّان في الشاشة يتبعان المكدّس فعلًا ────────────
+  //
+  // **يقيس السلسلة كاملة لا طرفها**: `setBlocks` → `onHistoryChange`
+  // → حالة Svelte → `historyReaches` → سمة `disabled` في DOM.
+  //
+  // كشفت مراجعة خصومية أن `history-depth` أعلاه يقرأ `editor.undoDepth`
+  // مباشرةً، فلا يمرّ بـ`onHistoryChange` أصلًا: من حذف إطلاقها في
+  // `setBlocks` مرّت كل الحُرّاس خضراء وبقي الزرّان مضيئين على مكدّس
+  // صُفِّر — أي أن القاعدة التي يقول تعليقُها إنها «بنيوية لا تُنسى»
+  // لم يكن يحرسها شيء. هذا هو حارسها.
+  {
+    const btn = (sel: string) =>
+      document.querySelector<HTMLButtonElement>(`${sel} button`);
+    const undoBtn = btn("[data-undo]");
+    const redoBtn = btn("[data-redo]");
+
+    if (!undoBtn || !redoBtn) {
+      add("history-buttons", "زرّا التراجع والإعادة يتبعان المكدّس", false, "الزرّان غير موجودين في الشريط");
+    } else {
+      editor.setBlocks([{ id: "t3a2", role: "body", text: "", marks: [] }]);
+      editor.focus();
+      await paint();
+      const atStart = { u: undoBtn.disabled, r: redoBtn.disabled };
+
+      type("نصٌّ يُضيء الزرّ");
+      await paint();
+      const afterWriting = { u: undoBtn.disabled, r: redoBtn.disabled };
+
+      // فتحُ مستند آخر يمسح السجل — والزرّ يجب أن يخفت معه
+      editor.setBlocks(buildLongDocument(30));
+      await paint();
+      const afterOpening = { u: undoBtn.disabled, r: redoBtn.disabled };
+
+      const ok =
+        atStart.u && atStart.r &&
+        !afterWriting.u && afterWriting.r &&
+        afterOpening.u && afterOpening.r;
+
+      add(
+        "history-buttons",
+        "زرّا التراجع والإعادة يتبعان المكدّس في الشاشة",
+        ok,
+        `معطَّلان في البداية ${atStart.u}/${atStart.r}` +
+          ` — بعد كتابة ${afterWriting.u}/${afterWriting.r}` +
+          ` — بعد فتح مستند ${afterOpening.u}/${afterOpening.r}` +
+          " (تراجع/إعادة)",
+      );
+    }
+  }
+
+  // ── ٣ب · المعاينة قراءةٌ فقط: التراجع لا ينفذ منها ──────────
+  //
+  // `EditorCore.undo` يرفض حين `editable=false` — والزرّان يُعطَّلان
+  // فوق ذلك بـ`historyReaches`. حاجزان مستقلان، وهذا يقيس الأعمق:
+  // لو أُضيء الزرّ خطأً يومًا، لا يزال الضغط بلا أثر.
+  {
+    editor.setBlocks([{ id: "t3b", role: "body", text: "", marks: [] }]);
+    editor.focus();
+    await paint();
+    type("نصٌّ محميّ");
+    await paint();
+    const before = editor.getBlocks()[0]?.text ?? "";
+
+    editor.setEditable(false);
+    const undid = editor.undo();
+    await paint();
+    const during = editor.getBlocks()[0]?.text ?? "";
+    editor.setEditable(true);
+
+    add(
+      "undo-readonly",
+      "التراجع لا ينفذ والمحرر للقراءة فقط",
+      undid === false && during === before,
+      undid === false && during === before
+        ? "رُفض التراجع والنصّ كما هو"
+        : `نفذ التراجع رغم القراءة فقط: «${during}»`,
+    );
+  }
+
   // ── ٤ · تفعيل التركيز لا يمسّ المحتوى ──────────────────────
   editor.setBlocks(buildLongDocument(400));
   await paint();

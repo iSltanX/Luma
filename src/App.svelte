@@ -22,7 +22,7 @@
   import { declareImportedFonts } from "./lib/font-faces";
   import { span, surfaceIn, surfaceOut } from "./lib/transitions";
   import { MOTION } from "./tokens/motion";
-  import { editingReaches } from "./lib/menu";
+  import { historyReaches } from "./lib/menu";
   import { createCloseRequest } from "./lib/closing";
   import type { SettingsSectionId } from "./lib/settings";
   import type {
@@ -68,10 +68,17 @@
   /** قرار الإغلاق — القاعدة في `lib/closing.ts` وحُقنت آثارها هنا. */
   let closeRequest: ReturnType<typeof createCloseRequest> | null = null;
 
-  /** هل يصل فعل التحرير إلى النص الذي يراه صاحبه؟ — `lib/menu.ts`. */
-  function editingReachable(): boolean {
-    return editingReaches({ settings, fontSheet, preview: previewId !== null });
-  }
+  // كان هنا `editingReachable()` يحرس بندَي القائمة وحدهما. زال لأن
+  // شرطه صار جزءًا من `historyReaches` (`lib/menu.ts`)، والبندان
+  // والزرّان صاروا يمرّون به جميعًا — بابٌ واحد بشرطٍ واحد.
+
+  // ── التراجع والإعادة — القرار ٤ ────────────────────────────
+  // عمق المكدّس كما يراه `prosemirror-history`، يُحدَّث من
+  // `onHistoryChange` وحده: النواة تُبلّغ من موضعَي تغيّر الحالة
+  // كليهما، فلا مسار يُغيّر المكدّس دون أن تتبعه هاتان.
+  // (تعريفهما هنا لأن `editor` يُنشأ أسفله ويقرؤهما في نداءاته.)
+  let undoDepth = $state(0);
+  let redoDepth = $state(0);
 
   function maybeDebut(s: SaveState) {
     if (s.kind !== "saved") return;
@@ -165,6 +172,53 @@
   let appVersion = $state("");
   let dataDir = $state("");
 
+  // ── إضاءة زرّي التراجع والإعادة — القرار ٤ ─────────────────
+  // هنا لا فوق: تقرأ `settings` و`fontSheet` و`previewId` و`busy`،
+  // وكلها تُعرَّف قبل هذا السطر. والقاعدة نفسها في `lib/menu.ts`
+  // مختبَرةً — هذا وصلُها بالحالة لا تكرارُها.
+  const canUndo = $derived(
+    historyReaches(undoDepth, { settings, fontSheet, preview: previewId !== null }, busy),
+  );
+  const canRedo = $derived(
+    historyReaches(redoDepth, { settings, fontSheet, preview: previewId !== null }, busy),
+  );
+
+  /**
+   * مدخلٌ ثانٍ إلى المكدّس الواحد لا مكدّسٌ ثانٍ — §٥ **ثابت**.
+   *
+   * المسار نفسه الذي يسلكه بندا القائمة و`⌘Z`: `EditorCore.undo`
+   * بحارسه الداخلي (`editable`)، وشرطُ الإضاءة فوقه. والفحص هنا ليس
+   * تكرارًا للتعطيل: الزرّ المعطَّل يمنع الفأرة وحدها، وهذا يمنع كل
+   * نداءٍ آخر — بندَ القائمة أولًا. حاجزان مستقلان بقصد.
+   */
+  function doUndo() {
+    if (!canUndo) return;
+    editor.undo();
+    returnCaret();
+  }
+
+  function doRedo() {
+    if (!canRedo) return;
+    editor.redo();
+    returnCaret();
+  }
+
+  /**
+   * يعيد التركيز إلى النص بعد تراجعٍ أو إعادة — حاجزٌ ثانٍ للتركيز.
+   *
+   * الأول هو إلغاء `mousedown` على الزرّين (`SurfacesBar`) فلا يخرج
+   * التركيز أصلًا بالنقر. وهذا يمسك ما يفلت منه: **الزرّ يُعطَّل تحت
+   * الإصبع** حين تُفرغ الضغطةُ المكدّس، فيسقط التركيز إلى `<body>`
+   * — أُعيد إنتاجه على محركين — فيبدأ `Tab` التالي من رأس الصفحة.
+   * وكل فعل مستند آخر في هذا الملف ينتهي بـ`editor.focus()`، وهذان
+   * كانا وحدهما يتركان التركيز حيث سقط.
+   *
+   * ويُستدعى بلا شرط: `focus()` على محررٍ مركَّزٍ أصلًا لا أثر له.
+   */
+  function returnCaret() {
+    editor.focus();
+  }
+
   let gallery = $state(false);
 
   /**
@@ -255,6 +309,12 @@
     onSelectionChange: (docChanged) => {
       syncSelection();
       runTypewriter(docChanged);
+    },
+    // عمق المكدّس يُقرأ من `prosemirror-history` نفسه، فحالة الزرّين
+    // تتبع المكدّس الفعلي لا وجود الكتابة — §٥، القرار ٤.
+    onHistoryChange: () => {
+      undoDepth = editor.undoDepth;
+      redoDepth = editor.redoDepth;
     },
     ariaLabel: "مساحة الكتابة",
   });
@@ -1067,11 +1127,14 @@
           // النواة — فكان ⌘Z أمام الإعدادات يمحو في المستند المحجوب
           // (و⌘Z أشيع ما يُضغط بعد تغيير إعداد)، ثم يثبّت الحفظُ
           // التلقائي المحوَ على القرص. والمعاينة قراءةٌ فقط كذلك.
-          if (e.payload === "undo" || e.payload === "redo") {
-            if (!editingReachable()) return;
-            if (e.payload === "undo") editor.undo();
-            else editor.redo();
-          } else if (e.payload === "settings") void openSettings();
+          //
+          // **والمسار واحد مع الزرّين** (`doUndo`/`doRedo`): بندُ
+          // القائمة والزرّ مدخلان إلى مكدّسٍ واحد، فلو افترقا في
+          // شروطهما لصار أحدهما يعمل حيث يرفض الآخر — والقرار ٤ يمنع
+          // «مكدّسًا ثانيًا» ويمنع بابًا ثانيًا بقواعد أخرى معه.
+          if (e.payload === "undo") doUndo();
+          else if (e.payload === "redo") doRedo();
+          else if (e.payload === "settings") void openSettings();
         }),
       );
 
@@ -1086,6 +1149,14 @@
         clearOverlays: () => {
           settings = false;
           fontSheet = false;
+          // **ويعود الإدخال معهما.** `$effect` الذي يغلقه عند فتح
+          // الإعدادات أحاديُّ الاتجاه: يُطفئ ولا يُشعل، و`closeSettings`
+          // وحدها كانت تعيده. فإغلاقٌ رُفض (لأن الحفظ لم يستقرّ) كان
+          // يترك المحرر غير قابل للتحرير والشاشة مرفوعة — فيضيء
+          // زرّا التراجع والإعادة على محررٍ يرفض التراجع: «زرٌّ مضيء
+          // لا يفعل شيئًا». كشفته مراجعة خصومية على القرار ٤، وجذره
+          // أقدم منه.
+          editor.setEditable(true);
         },
         warn: (because) =>
           because === "refused"
@@ -1317,6 +1388,10 @@
     oncomfort={enterComfort}
     ondelete={deleteDocument}
     candelete={currentId !== null && previewId === null && !busy}
+    onundo={doUndo}
+    onredo={doRedo}
+    canundo={canUndo}
+    canredo={canRedo}
     wordCount={count}
     showWordCount={prefs.showWordCount}
     {comfort}
