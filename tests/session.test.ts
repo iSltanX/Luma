@@ -64,6 +64,39 @@ function session(
   });
 }
 
+/**
+ * يسجّل تسلسل نداءات الجسر — الترتيب هو موضوع الاختبار لا نتيجته.
+ *
+ * في نطاق الوحدة لا داخل `describe` واحد: مسارات الحذف الثلاثة (كنسُ
+ * الفارغ عند المغادرة، وزرّ الحذف، والاستعادة) تقيس الترتيب نفسه.
+ */
+function tracked(overrides: { saveFails?: boolean; loadFails?: boolean } = {}) {
+  const calls: string[] = [];
+  return {
+    calls,
+    bridge: {
+      save: async () => {
+        if (overrides.saveFails) {
+          calls.push("save:fail");
+          throw new Error("القرص ممتلئ");
+        }
+        calls.push("save");
+      },
+      load: async (id: string) => {
+        if (overrides.loadFails) {
+          calls.push("load:fail");
+          throw new Error("تالف");
+        }
+        calls.push("load");
+        return { id, title: null, blocks: [block("مستند آخر")], createdAt: 1 };
+      },
+      remove: async (id: string) => {
+        calls.push(`remove:${id}`);
+      },
+    },
+  };
+}
+
 describe("ما كُتب قبل وجود الجلسة لا يضيع", () => {
   /**
    * المحرر يُركَّب ويأخذ المؤشر قبل أن تُنشأ الجلسة. وما يُكتب في تلك
@@ -193,34 +226,6 @@ describe("فتح مستند آخر لا يستبدل نصًّا لم يصل ال
  * الترتيب نفسه لا نتيجته وحدها.
  */
 describe("المستند الفارغ يُحذف عند مغادرته", () => {
-  /** يسجّل تسلسل نداءات الجسر — الترتيب هو موضوع الاختبار. */
-  function tracked(overrides: { saveFails?: boolean; loadFails?: boolean } = {}) {
-    const calls: string[] = [];
-    return {
-      calls,
-      bridge: {
-        save: async () => {
-          if (overrides.saveFails) {
-            calls.push("save:fail");
-            throw new Error("القرص ممتلئ");
-          }
-          calls.push("save");
-        },
-        load: async (id: string) => {
-          if (overrides.loadFails) {
-            calls.push("load:fail");
-            throw new Error("تالف");
-          }
-          calls.push("load");
-          return { id, title: null, blocks: [block("مستند آخر")], createdAt: 1 };
-        },
-        remove: async (id: string) => {
-          calls.push(`remove:${id}`);
-        },
-      },
-    };
-  }
-
   /** يُنشئ مستندًا حقيقيًا ثم يُفرغه — «كُتب ثم أُفرغ». */
   function emptied(e: ReturnType<typeof fakeEditor>, s: EditorSession) {
     s.handleChange([block("نصٌّ سيُمحى")]);
@@ -401,6 +406,138 @@ describe("المستند الفارغ يُحذف عند مغادرته", () => {
 
     expect(s.currentId).not.toBeNull();
     expect(s.currentId).not.toBe(id);
+  });
+});
+
+/**
+ * زرّ «الحذف» في شريط الأسطح — `Luma.md` §٥ **ثابت**، القرار ٣.
+ *
+ * بلا حوار تأكيد بقرار، فالسلّة هي التدارك (ADR ٠٠١٩). وما يُحرَس هنا
+ * ليس وقوعَ الحذف بل **حدودُه**: أن تستقرّ الكتابة قبله، وأن يفتح
+ * مساحةً نظيفة بعده، وألّا يترك نصًّا بلا مالك إن فشل.
+ */
+describe("حذف المستند المفتوح", () => {
+  it("يحذف بمعرّفه ويفتح مساحة نظيفة", async () => {
+    const e = fakeEditor();
+    const { calls, bridge } = tracked();
+    const s = session(e, bridge);
+    s.handleChange([block("نصٌّ سيُحذف")]);
+    const id = s.currentId!;
+
+    expect(await s.deleteCurrent()).toBe(true);
+
+    expect(calls).toContain(`remove:${id}`);
+    expect(s.currentId).toBeNull();
+    expect(s.contents).toEqual([]);
+    expect(e.blocks()).toEqual([]);
+  });
+
+  it("مساحة لا مستند لها: لا نداء حذف ولا خطأ", async () => {
+    const e = fakeEditor();
+    const { calls, bridge } = tracked();
+    const s = session(e, bridge);
+
+    expect(await s.deleteCurrent()).toBe(false);
+    expect(calls.some((c) => c.startsWith("remove:"))).toBe(false);
+  });
+
+  /**
+   * **الكتابة تستقرّ قبل المحو.** كتابةٌ معلَّقة تهبط بعد أن ينتقل مجلد
+   * المستند إلى السلّة تكتب `Documents/<id>` من جديد: شبحٌ في المكتبة
+   * ونسخةٌ في السلّة لمستندٍ واحد.
+   */
+  it("الحفظ يسبق المحو، ولا كتابة تهبط بعده", async () => {
+    const e = fakeEditor();
+    const { calls, bridge } = tracked();
+    const s = session(e, bridge);
+    s.handleChange([block("نصٌّ سيُحذف")]);
+    const id = s.currentId!;
+
+    await s.deleteCurrent();
+
+    const wrote = calls.indexOf("save");
+    const erased = calls.indexOf(`remove:${id}`);
+    expect(wrote).toBeGreaterThanOrEqual(0);
+    expect(erased).toBeGreaterThan(wrote);
+    expect(calls.slice(erased + 1)).not.toContain("save");
+  });
+
+  it("فشل الحفظ يمنع الحذف من أصله", async () => {
+    const e = fakeEditor();
+    const { calls, bridge } = tracked({ saveFails: true });
+    const s = session(e, bridge);
+    s.handleChange([block("نصٌّ لم يصل القرص")]);
+    const id = s.currentId!;
+
+    await expect(s.deleteCurrent()).rejects.toThrow();
+    expect(calls.some((c) => c.startsWith("remove:"))).toBe(false);
+    expect(s.currentId).toBe(id);
+  });
+
+  /**
+   * **الحارس الحاسم.** لو صُفِّرت الهويّة قبل نجاح المحو، لبقي نصٌّ على
+   * الشاشة لا تعرف الجلسة له مالكًا: أول حرف بعده يُنشئ مستندًا ثانيًا
+   * بمحتوى الأول، والأول باقٍ على القرص. الترتيب هنا يُبقي الجلسة
+   * عارفةً بمستندها فيعيد الكاتب المحاولة.
+   */
+  it("فشل المحو يُبقي المستند والجلسةَ تعرفه — فتُعاد المحاولة", async () => {
+    const e = fakeEditor();
+    const s = session(e, {
+      remove: async () => {
+        throw new Error("القرص رفض");
+      },
+    });
+    s.handleChange([block("نصٌّ باقٍ")]);
+    const id = s.currentId!;
+
+    await expect(s.deleteCurrent()).rejects.toThrow();
+
+    expect(s.currentId).toBe(id);
+    expect(s.contents).toEqual([block("نصٌّ باقٍ")]);
+  });
+
+  /**
+   * **الحارس الذي كان يكذب.**
+   *
+   * كُتب أولًا يؤكّد **الترتيب** وحده (`["load:start","load:end","remove"]`)
+   * ويُهمل الوسيط الذي مُحي به. فبقي أخضر على عطلٍ حقيقي كشفته مراجعة
+   * خصومية: `deleteCurrent` كانت تقرأ هدفها **داخل** الطابور، فمن نقر
+   * صفَّ مسودة ثم «حذف» قاصدًا المعروض أمامه، حُذف له المستند الذي
+   * فُتح للتوّ — وهو نقيض «لا يُزيل إلا ما يقرؤه الكاتب الآن» الذي
+   * تقوم عليه حجّةُ إسقاط حوار التأكيد.
+   *
+   * يفحص الآن **المعرّف** لا الترتيب: أيّ مستند ذهب فعلًا.
+   */
+  it("مستندٌ فُتح بعد الضغط لا يُحذف — الهدف يُلتقط عند الطلب", async () => {
+    const e = fakeEditor();
+    const removed: string[] = [];
+    let release!: () => void;
+    const gate = new Promise<void>((r) => (release = r));
+
+    const s = session(e, {
+      load: async () => {
+        await gate;
+        return { id: "أخرى", title: null, blocks: [block("مسودة أخرى")], createdAt: 1 };
+      },
+      remove: async (id: string) => {
+        removed.push(id);
+      },
+    });
+    s.handleChange([block("نصّ")]);
+    const original = s.currentId!;
+
+    // نقرة «فتح مسودة» ثم نقرة «حذف» قبل أن تكتمل الأولى
+    const opening = s.open("أخرى");
+    const deleting = s.deleteCurrent();
+    release();
+    const [, deleted] = await Promise.all([opening, deleting]);
+
+    expect(removed).not.toContain("أخرى");
+    expect(deleted).toBe(false);
+    // ولم يُمحَ الأصل خلسةً أيضًا: الطلب سقط كاملًا لا نصفه
+    expect(removed).toEqual([]);
+    expect(original).not.toBe("أخرى");
+    expect(s.currentId).toBe("أخرى");
   });
 });
 

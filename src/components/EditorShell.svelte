@@ -34,6 +34,8 @@
     ontoggle,
     onnew,
     oncomfort,
+    ondelete,
+    candelete = false,
     wordCount = 0,
     showWordCount = false,
     comfort = false,
@@ -60,6 +62,10 @@
     onnew?: (() => void) | undefined;
     /** دخول المحرر المريح — لا يُمرَّر وهو مفتوح. */
     oncomfort?: (() => void) | undefined;
+    /** حذف المستند المفتوح — `Luma.md` §٥ **ثابت**. */
+    ondelete?: (() => void) | undefined;
+    /** ثمّة مستندٌ يُحذف فعلًا. دونه الزرّ معطَّل. */
+    candelete?: boolean;
     wordCount?: number;
     /** **مخفي افتراضيًا** ويظهر بطلب المستخدم — `Luma.md` §٥ **ثابت**. */
     showWordCount?: boolean;
@@ -159,6 +165,8 @@
       {ontoggle}
       onnew={onnew ?? undefined}
       oncomfort={oncomfort ?? undefined}
+      ondelete={ondelete ?? undefined}
+      {candelete}
     />
   </div>
 

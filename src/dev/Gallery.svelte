@@ -9,6 +9,7 @@
   import { THEMES, type ThemeId } from "../tokens/themes";
   import { theme } from "../lib/theme.svelte";
   import { ICON_NAMES } from "../components/icons";
+  import { arabicDigits } from "../lib/bidi";
   import Icon from "../components/Icon.svelte";
   import Button from "../components/Button.svelte";
   import IconButton from "../components/IconButton.svelte";
@@ -70,7 +71,8 @@
     </div>
   </header>
 
-  <section><h3 class="t-ui-04">الأيقونات — ٢٢</h3>
+  <!-- العدد محسوب لا مكتوب: كان «٢٢» ثابتًا فكذب يوم اتّسعت المجموعة. -->
+  <section><h3 class="t-ui-04">الأيقونات — {arabicDigits(ICON_NAMES.length)}</h3>
     <div class="icons">
       {#each ICON_NAMES as n (n)}
         <span class="icell"><Icon name={n} /></span>

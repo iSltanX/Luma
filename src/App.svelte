@@ -116,6 +116,19 @@
   let restoring = $state(false);
 
   /**
+   * عمليةٌ تُبدّل المستند جارية — تُعطَّل أفعاله طوالها.
+   *
+   * **كشفته مراجعة خصومية على القرار ٣:** `currentId` و`previewId`
+   * مرآتان لا تُحدَّثان إلا **بعد** أن تعود رحلة IPC، فبينهما نافذةٌ
+   * كامل الطول يبقى فيها زرّ الحذف مفعَّلًا على حالةٍ لم تعد قائمة:
+   * نقرةٌ على مسودة أخرى ثم نقرةٌ على «حذف» كانت تصطفّ خلف الفتح،
+   * ونقرةٌ على نسخة في السجل ثم «حذف» تسبق ظهور لافتة المعاينة.
+   * والجلسة تحرس نفسها بالتقاط الهدف عند الطلب، وهذا يمنع النقرة
+   * أصلًا — حاجزان مستقلان لفعلٍ لا حوارَ تأكيد له.
+   */
+  let busy = $state(false);
+
+  /**
    * عطلٌ يخصّ المستخدم لا سجلّ المطوّر.
    *
    * كانت مسارات الفشل كلها تنتهي عند `console.error`: المستخدم يضغط
@@ -609,13 +622,16 @@
    * لا يُنشأ إلا عند أول حرف يُكتب فيه.
    */
   async function newDocument() {
-    if (!session) return;
+    if (!session || busy) return;
+    busy = true;
     try {
       await session.startNew();
     } catch (e) {
       // فشل حفظ الحالي يمنع البدء — لا يُستبدل نصٌّ لم يصل القرص
       fail("تعذّر بدء نصّ جديد", e);
       return;
+    } finally {
+      busy = false;
     }
     // **بعد المغادرة لا قبلها.** `startNew()` تمرّ بالطابور نفسه الذي
     // تمرّ به `preview()`/`restore()` (`session.runExclusive`)، فقد
@@ -627,14 +643,62 @@
     currentId = null;
     count = 0;
     surface = null;
+    // العلّة نفسها التي في `deleteDocument`: `setBlocks` لا يبثّ تغيّر
+    // تحديد، فيبقى شريط التنسيق معلَّقًا فوق مساحةٍ فُرّغت.
+    selection = false;
     await tick();
     editor.focus();
+  }
+
+  /**
+   * حذف المستند المفتوح — زرّ «الحذف» في شريط الأسطح، `Luma.md` §٥.
+   *
+   * بلا حوار تأكيد بقرار، والسلّة هي التدارك (ADR ٠٠١٩). وما بعد
+   * الحذف مساحةٌ نظيفة — الترتيب نفسه الذي يتبعه «نصّ جديد».
+   */
+  async function deleteDocument() {
+    if (!session || !currentId || busy) return;
+    let deleted = false;
+    busy = true;
+    try {
+      deleted = await session.deleteCurrent();
+    } catch (e) {
+      // فشل استقرار الكتابة يمنع الحذف — والمستند يبقى كما هو
+      fail("تعذّر حذف النص", e);
+      return;
+    } finally {
+      busy = false;
+    }
+    // **لم يقع حذف فلا تُصفَّر حالة** — تبدّل المستند بين الطلب والدور،
+    // والجلسة رفضت أن تحذف غير ما قُصد (`deleteCurrent`).
+    if (!deleted) return;
+
+    // بعد المغادرة لا قبلها — الشرح في `newDocument` أدناه
+    exitPreview();
+    problem = null;
+    currentId = null;
+    count = 0;
+    surface = null;
+    // شريط التحديد يرسو فوق المساحة ولا يعرف أن المستند ذهب:
+    // `setBlocks` لا يبثّ تغيّر تحديد، فتبقى الأداة معلَّقة فوق فراغ.
+    selection = false;
+    // **ولا «محفوظ» لمستندٍ لم يعد موجودًا.** الحالة تصف آخر كتابة
+    // وقعت، وقد كانت جزءًا من المحو نفسه (الاستقرار قبل الحذف) —
+    // فإبقاؤها يطمئن على نصٍّ ذهب. ويُلغى معها ظهورُ «أول حفظ»:
+    // احتفاءُ الميلاد لا يقع لحظة المحو (`FEEL-PLAN` M0 ج).
+    saveState = { kind: "idle" };
+    saveDebut = false;
+    clearTimeout(debutTimer);
+    await tick();
+    editor.focus();
+    await refreshLibrary();
   }
 
   // ── المكتبة ────────────────────────────────────────────────
 
   async function openDocument(id: string) {
-    if (!session || id === currentId) return;
+    if (!session || id === currentId || busy) return;
+    busy = true;
     try {
       await session.open(id);
     } catch (e) {
@@ -642,6 +706,8 @@
       // ويشمل ذلك **فشل حفظ الحالي**: لا يُستبدل نصٌّ لم يصل القرص.
       fail("تعذّر فتح النص", e);
       return;
+    } finally {
+      busy = false;
     }
     // بعد الفتح لا قبله — الشرح في `newDocument` أعلاه.
     exitPreview();
@@ -659,11 +725,16 @@
       exitPreview();
       return;
     }
-    if (!invoke || !session) return;
+    if (!invoke || !session || busy) return;
+    // **يُرفع الحجز من أول لحظة** لا بعد استقرار الحفظ: بين النقر على
+    // صفّ النسخة وظهور لافتة المعاينة رحلتان كاملتان، و`previewId` لا
+    // يُضبط إلا في آخرهما — فبدونه يبقى زرّ الحذف مفعَّلًا طوالهما.
+    busy = true;
     // الحالة الحيّة تصل القرص **قبل** أي استبدال في المحرر — وإن لم
     // تصل، لا معاينة: المعاينة تستبدل ما في المحرر.
     const wrote = await session.flush();
     if (!wrote.settled) {
+      busy = false;
       fail(
         "تعذّرت المعاينة",
         wrote.because === "refused"
@@ -702,6 +773,8 @@
       // ويعود الإدخال: لم تبدأ معاينة، فلا سبب لبقاء النص محجوبًا.
       editor.setEditable(true);
       fail("تعذّرت قراءة هذه النسخة", e);
+    } finally {
+      busy = false;
     }
   }
 
@@ -715,7 +788,8 @@
   }
 
   async function restore(id: string) {
-    if (!invoke || !session) return;
+    if (!invoke || !session || busy) return;
+    busy = true;
 
     // **الاستعادة تستنزف الحفظ أولًا — كأخواتها.**
     //
@@ -728,6 +802,7 @@
     // وحالةُ الحفظ مخفيّة طوال المعاينة، فحتى فشلُ القرص لا يُرى.
     const wrote = await session.flush();
     if (!wrote.settled) {
+      busy = false;
       fail(
         "تعذّرت الاستعادة",
         wrote.because === "refused"
@@ -764,6 +839,7 @@
       fail("تعذّرت استعادة هذه النسخة", e);
     } finally {
       restoring = false;
+      busy = false;
     }
   }
 
@@ -974,6 +1050,12 @@
       },
       onTitleChange: (t) => (title = t),
     });
+
+    // **المرآة تُزامَن فور الإنشاء.** الجلسة تتبنّى ما كان في المحرر
+    // قبل وجودها (`session.ts` — «ما كُتب قبل أن توجد الجلسة») فتُنشئ
+    // مستندًا حقيقيًّا **بلا أن يمرّ بـ`onChange`**، فتبقى هذه المرآة
+    // صفرًا على مستند موجود: زرّ الحذف معطَّل على نصٍّ يراه الكاتب.
+    currentId = session.currentId;
 
     try {
       const { listen } = await import("@tauri-apps/api/event");
@@ -1233,6 +1315,8 @@
     ontoggle={toggleSurface}
     onnew={newDocument}
     oncomfort={enterComfort}
+    ondelete={deleteDocument}
+    candelete={currentId !== null && previewId === null && !busy}
     wordCount={count}
     showWordCount={prefs.showWordCount}
     {comfort}
