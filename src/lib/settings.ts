@@ -15,6 +15,7 @@ export type SettingsSectionId =
   | "writing"
   | "comfort"
   | "language"
+  | "trash"
   | "about";
 
 export interface SettingsSection {
@@ -49,6 +50,15 @@ export const SECTIONS: readonly SettingsSection[] = [
     label: "اللغة",
     icon: "info",
     summary: `العربية هي لغة ${isolate("Luma")} الأولى، والواجهة ${isolate("RTL")} أصيلة وليست ترجمة`,
+  },
+  {
+    id: "trash",
+    label: "السلة",
+    // «سجل» مُستعارة — لا أيقونة سلّة في مجموعة الـ٢٢، والسلّة أقرب
+    // مفهومًا إلى الذاكرة القابلة للاستعادة منها إلى أي أيقونة أخرى
+    // في المجموعة. نمط الاستعارة نفسه في «حول» (`panel`) و«اللغة» (`info`).
+    icon: "history",
+    summary: "مستندات محذوفة قابلة للاستعادة بسجلها، تُفرَغ بعد ٣٠ يومًا",
   },
   {
     id: "about",

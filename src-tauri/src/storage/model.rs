@@ -51,9 +51,24 @@ pub struct Document {
     pub blocks: Vec<Block>,
     pub created_at: i64,
     pub updated_at: i64,
-    /// آخر فتح. كان أساس الاستئناف؛ بلا قارئ منذ إلغائه (ADR ٠٠١٧)،
-    /// ومصيره يُحسم مع هجرة السلّة — لا يُزال حقل مخطط خارج هجرة.
+    /// آخر فتح. كان أساس الاستئناف؛ بلا قارئ منذ إلغائه (ADR ٠٠١٧).
+    /// السلة (ADR ٠٠١٩) لا تحتاجه — ترتيبها بوقت الحذف لا الفتح —
+    /// فيبقى حقلًا ميتًا يُحسم مصيره في تنظيف لاحق منفصل.
     pub last_opened_at: i64,
+    /// `None` = مستند حيّ. `Some(ms)` = في السلّة منذ هذا الوقت.
+    ///
+    /// **إضافي بحت لا يستدعي هجرة** — على نمط `title` و`marks` أعلاه:
+    /// مستند من قبل هذا الحقل يُقرأ بلا خطأ (`None` الافتراضي)، ولا
+    /// حاجة لرفع `SCHEMA_VERSION` ولا لخطوة في `migrate.rs`. القاعدة
+    /// نفسها مسجَّلة في `marks`: «قراءتها يجب أن تبقى ممكنة بلا هجرة
+    /// ولا رفع إصدار».
+    ///
+    /// **لا يُقرأ من مستند داخل `Documents/`** — الحيّ والمحذوف
+    /// يفرّقهما مجلدٌ لا حقل (`DocumentStore::trash`، ADR ٠٠١٩): وجود
+    /// المستند في `Documents/` كافٍ ليُعامَل حيًّا بصرف النظر عن قيمة
+    /// هذا الحقل. فهو صادقٌ حين يُقرأ من داخل `Trash/` وحدها.
+    #[serde(default)]
+    pub deleted_at: Option<i64>,
 }
 
 fn default_schema_version() -> u32 {
@@ -145,6 +160,34 @@ pub struct DocumentSummary {
     pub last_opened_at: i64,
 }
 
+/// بطاقة مستند في السلّة — بطاقة المكتبة نفسها ومعها وقت الحذف، الذي
+/// يُبنى عليه العدّ التنازلي للإفراغ التلقائي. ADR ٠٠١٩.
+#[derive(Debug, Clone, Serialize)]
+#[serde(rename_all = "camelCase")]
+pub struct TrashSummary {
+    pub id: String,
+    pub title: String,
+    pub excerpt: String,
+    pub word_count: usize,
+    /// وقت الحذف — **لا** `None` هنا: كل مستند داخل `Trash/` مختومٌ
+    /// عند النقل (`DocumentStore::trash`)، فغيابه استثناءٌ لا حالة
+    /// طبيعية يُعبَّر عنها بنوع اختياري.
+    pub deleted_at: i64,
+}
+
+impl From<&Document> for TrashSummary {
+    fn from(d: &Document) -> Self {
+        let s = DocumentSummary::from(d);
+        Self {
+            id: s.id,
+            title: s.title,
+            excerpt: s.excerpt,
+            word_count: s.word_count,
+            deleted_at: d.deleted_at.unwrap_or(0),
+        }
+    }
+}
+
 impl From<&Document> for DocumentSummary {
     fn from(d: &Document) -> Self {
         // المقتطف يبدأ **بعد** السطر الذي صار عنوانًا.
@@ -199,6 +242,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             last_opened_at: 0,
+            deleted_at: None,
         }
     }
 
@@ -234,6 +278,16 @@ mod tests {
         let d: Document = serde_json::from_str(json).unwrap();
         assert_eq!(d.schema_version, 1);
         assert_eq!(d.title, None);
+    }
+
+    /// **`deletedAt` إضافي بحت** — مستند من قبل السلّة (ADR ٠٠١٩) يُقرأ
+    /// بلا خطأ ويُعامَل حيًّا (`None`)، بلا هجرة ولا رفع إصدار — القاعدة
+    /// نفسها المسجَّلة في `documents_without_marks_still_load` بـ`document.rs`.
+    #[test]
+    fn missing_deleted_at_reads_as_alive() {
+        let json = r#"{"id":"a","blocks":[],"createdAt":0,"updatedAt":0,"lastOpenedAt":0}"#;
+        let d: Document = serde_json::from_str(json).unwrap();
+        assert_eq!(d.deleted_at, None);
     }
 
     #[test]

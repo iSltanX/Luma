@@ -433,6 +433,9 @@ pub fn run() {
             commands::load_document,
             commands::list_documents,
             commands::delete_document,
+            commands::restore_document,
+            commands::list_trash,
+            commands::empty_trash,
             commands::cleanup_selftest,
             commands::list_fonts,
             commands::pick_and_import_font,
@@ -481,7 +484,22 @@ pub fn run() {
                 eprintln!("[luma] أُعيدت إتاحة {registered} خطًّا مستوردًا");
             }
 
-            app.manage(commands::Storage { root });
+            // **كسحُ سلّةٍ منتهية المهلة عند كل إقلاع** — ADR ٠٠١٩:
+            // «الفحص كسول: عند إطلاق التطبيق، وعند فتح لوحة السلّة».
+            // هذا شقّ الإطلاق؛ شقّ اللوحة في `commands::list_trash`.
+            // أفضل-جهد كتسجيل الخطوط أعلاه: تعذُّر الكسح لا يمنع الإقلاع.
+            {
+                use storage::document::{DocumentStore, TRASH_RETENTION_MS};
+                use storage::revision::now_ms;
+                let purged = DocumentStore::new(root.clone())
+                    .sweep_expired(now_ms(), TRASH_RETENTION_MS)
+                    .unwrap_or(0);
+                if purged > 0 {
+                    eprintln!("[luma] كُسح {purged} من السلّة بعد انتهاء مهلتها");
+                }
+            }
+
+            app.manage(commands::Storage::new(root));
 
             Ok(())
         })

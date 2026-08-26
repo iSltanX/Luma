@@ -7,7 +7,16 @@ use std::fs;
 use std::path::{Path, PathBuf};
 
 use super::atomic::{read_optional, write_atomic};
-use super::model::{Document, DocumentSummary, SCHEMA_VERSION};
+use super::model::{Document, DocumentSummary, TrashSummary, SCHEMA_VERSION};
+use super::revision::now_ms;
+
+/// مهلة الإفراغ التلقائي للسلّة — ٣٠ يومًا. ADR ٠٠١٩.
+///
+/// كافية لتغطية «حُذف بالخطأ ولم يُنتبه إلا بعد أسابيع»، ومحدودة كي لا
+/// تصير السلّة مكتبةً ثانية بلا حدّ — الروح نفسها التي تحكم
+/// `MAX_REVISIONS`/`MAX_TOTAL_BYTES` في `revision.rs`: شبكة أمان سخية
+/// لا تخزين دائم.
+pub const TRASH_RETENTION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
 #[derive(Debug)]
 pub enum StoreError {
@@ -57,8 +66,19 @@ impl DocumentStore {
         self.root.join("Documents")
     }
 
+    /// السلّة — شقيقة `Documents/` لا مجلد داخلها. ADR ٠٠١٩: مجلد
+    /// المستند يُنقل إليها كاملًا، فلا يبقى تحت `Documents/` ما دام في
+    /// السلّة — والفرق بينهما مجلدٌ لا حقل، `list()` لا تفحص شيئًا.
+    fn trash_dir(&self) -> PathBuf {
+        self.root.join("Trash")
+    }
+
     fn dir_for(&self, id: &str) -> PathBuf {
         self.documents_dir().join(id)
+    }
+
+    fn trash_dir_for(&self, id: &str) -> PathBuf {
+        self.trash_dir().join(id)
     }
 
     pub fn path_for(&self, id: &str) -> PathBuf {
@@ -128,7 +148,14 @@ impl DocumentStore {
         Ok((out, damaged))
     }
 
-    pub fn delete(&self, id: &str) -> Result<()> {
+    /// يمحو مستندًا نهائيًا — **بلا سلّة ولا تدارك**. ADR ٠٠١٩.
+    ///
+    /// كانت هذه `delete()`، وكل استدعاء لها في المنتج صار `trash()`
+    /// (سلّة، لا محوًا فوريًا) إلا حالة واحدة: مستندٌ لا كلمة فيه ولا
+    /// لقطة سجل واحدة — لا شيء فيه يخسره التدارك، فيُمحى مباشرةً بدل
+    /// أن يشغل صفًّا في السلّة لا يُستعاد منه شيء. والاسم الجديد يجعل
+    /// النهائية ظاهرة في موضع الاستدعاء لا مطويّة خلف اسم عام.
+    pub fn purge(&self, id: &str) -> Result<()> {
         if !is_safe_id(id) {
             return Err(StoreError::NotFound);
         }
@@ -137,6 +164,136 @@ impl DocumentStore {
             fs::remove_dir_all(&dir)?;
         }
         Ok(())
+    }
+
+    /// ينقل مستندًا إلى السلّة — **نقلٌ فعلي لا علامة**. ADR ٠٠١٩.
+    ///
+    /// مجلد المستند كاملًا (`document.json` وسجله في `revisions/`)
+    /// يُنقَل من `Documents/<id>/` إلى `Trash/<id>/` بـ`fs::rename` —
+    /// إدخال دليل واحد على القرص نفسه، لا نسخ. الوجهة تضمن العزل:
+    /// `list()` لا تفحص `deleted_at` لأن المحذوف لم يعد داخل `Documents/`
+    /// أصلًا، فلا فلترة يمكن أن تُنسى في مسارٍ يُضاف لاحقًا.
+    ///
+    /// **الختم يسبق النقل لا يتبعه.** لو انقلب الترتيب وتوقّف العمل
+    /// بينهما، دخل السلّة مستندٌ بـ`deleted_at: None` — قيمة سويّة في
+    /// مستند حيّ، لكنها هنا تكسر حساب انتهاء المهلة في `sweep_expired`
+    /// (لا وقت يُقاس منه). بالترتيب هنا، توقّفٌ بين الختم والنقل يترك
+    /// المستند في `Documents/` بحقل مختوم لا يُقرأ من هناك أصلًا —
+    /// حالة سويّة تُصلحها أول كتابة تالية (`save_document` يضبط
+    /// `deletedAt: null` دومًا)، لا حالة غامضة في السلّة.
+    pub fn trash(&self, id: &str) -> Result<()> {
+        let mut doc = self.load(id)?;
+        doc.deleted_at = Some(now_ms());
+        self.save(&doc)?;
+
+        let from = self.dir_for(id);
+        let to = self.trash_dir_for(id);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&from, &to)?;
+        Ok(())
+    }
+
+    /// يعيد مستندًا من السلّة — بسجله كاملًا كما كان. ADR ٠٠١٩.
+    ///
+    /// **النقل يسبق تصفير الختم لا يتبعه** — عكس ترتيب `trash()` عمدًا:
+    /// خطوة النقل هي الحرجة (`fs::rename` ذرّية)؛ وتصفير `deleted_at`
+    /// بعدها تجميلٌ لا سلامة، إذ `list()` لا تقرأ الحقل أصلًا فور وصول
+    /// المستند إلى `Documents/`. توقّفٌ بعد النقل يترك مستندًا حيًّا
+    /// بحقلٍ متخلّف غير مقروء — تُصلحه أول كتابة تالية كما في `trash()`.
+    /// لو انقلب الترتيب، توقّفٌ بين الخطوتين يترك المستند في `Trash/`
+    /// بختمٍ صُفِّر — نقيض ما تحتاجه `sweep_expired` تمامًا.
+    pub fn restore(&self, id: &str) -> Result<()> {
+        if !is_safe_id(id) {
+            return Err(StoreError::NotFound);
+        }
+        let from = self.trash_dir_for(id);
+        let to = self.dir_for(id);
+        if let Some(parent) = to.parent() {
+            fs::create_dir_all(parent)?;
+        }
+        fs::rename(&from, &to).map_err(|_| StoreError::NotFound)?;
+
+        if let Ok(mut doc) = self.load(id) {
+            doc.deleted_at = None;
+            let _ = self.save(&doc);
+        }
+        Ok(())
+    }
+
+    /// محتويات السلّة، الأحدث حذفًا أولًا. التالفة تُتخطّى — القاعدة
+    /// نفسها في `list()`.
+    pub fn list_trash(&self) -> Result<(Vec<TrashSummary>, Vec<String>)> {
+        let dir = self.trash_dir();
+        if !dir.exists() {
+            return Ok((Vec::new(), Vec::new()));
+        }
+        let mut out = Vec::new();
+        let mut damaged = Vec::new();
+        for entry in fs::read_dir(&dir)? {
+            let Ok(entry) = entry else { continue };
+            if !entry.path().is_dir() {
+                continue;
+            }
+            let Some(id) = entry.file_name().to_str().map(String::from) else {
+                continue;
+            };
+            let path = self.trash_dir_for(&id).join("document.json");
+            let read = read_optional(&path).map_err(StoreError::from);
+            match read {
+                Ok(Some(bytes)) => match parse_document(&bytes, &path) {
+                    Ok(d) => out.push(TrashSummary::from(&d)),
+                    Err(_) => damaged.push(id),
+                },
+                Ok(None) => {}
+                Err(_) => damaged.push(id),
+            }
+        }
+        out.sort_by_key(|d| std::cmp::Reverse(d.deleted_at));
+        Ok((out, damaged))
+    }
+
+    /// يمحو عنصرًا واحدًا من السلّة نهائيًا — اللبنة التي يُبنى عليها
+    /// `sweep_expired` و`empty_trash`، ويستعملها أيضًا `cleanup_selftest`
+    /// لكنس ما تركته أدوات التطوير هناك.
+    pub fn purge_trashed(&self, id: &str) -> Result<()> {
+        if !is_safe_id(id) {
+            return Err(StoreError::NotFound);
+        }
+        let dir = self.trash_dir_for(id);
+        if dir.exists() {
+            fs::remove_dir_all(&dir)?;
+        }
+        Ok(())
+    }
+
+    /// يمحو ما تجاوز `retention_ms` منذ حذفه — نهائيًا. ADR ٠٠١٩.
+    ///
+    /// كسول لا خلفي: يُستدعى عند الإقلاع وعند فتح لوحة السلّة، لا من
+    /// مؤقّت يعمل والتطبيق مغلق. **يُبلّغ:** عدد ما مُحي.
+    pub fn sweep_expired(&self, now: i64, retention_ms: i64) -> Result<usize> {
+        let (list, _) = self.list_trash()?;
+        let mut purged = 0;
+        for s in list {
+            if now.saturating_sub(s.deleted_at) >= retention_ms && self.purge_trashed(&s.id).is_ok()
+            {
+                purged += 1;
+            }
+        }
+        Ok(purged)
+    }
+
+    /// يُفرغ السلّة كاملة فورًا — زرّ الإفراغ اليدوي. **يُبلّغ:** عدد ما مُحي.
+    pub fn empty_trash(&self) -> Result<usize> {
+        let (list, _) = self.list_trash()?;
+        let mut purged = 0;
+        for s in list {
+            if self.purge_trashed(&s.id).is_ok() {
+                purged += 1;
+            }
+        }
+        Ok(purged)
     }
 
     pub fn exists(&self, id: &str) -> bool {
@@ -192,6 +349,8 @@ mod tests {
     use crate::storage::model::Block;
     use crate::storage::model::InlineMark;
 
+    const DAY_MS: i64 = 24 * 60 * 60 * 1000;
+
     fn store(name: &str) -> DocumentStore {
         let d = std::env::temp_dir().join(format!("luma-docs-{name}-{}", std::process::id()));
         let _ = fs::remove_dir_all(&d);
@@ -212,6 +371,7 @@ mod tests {
             created_at: 100,
             updated_at: 100,
             last_opened_at: 100,
+            deleted_at: None,
         }
     }
 
@@ -360,20 +520,21 @@ mod tests {
         for bad in ["../evil", "/etc/passwd", "a/b", "", "a b"] {
             assert!(!is_safe_id(bad), "قُبل معرّف خطر: {bad}");
             assert!(s.load(bad).is_err());
-            // والحذف يمرّ بالحارس نفسه: معرّفٌ خطر لا يمحو شيئًا
-            assert!(s.delete(bad).is_err(), "حذفٌ بمعرّف خطر: {bad}");
+            // والمسارات الثلاثة كلها تمرّ بالحارس نفسه: معرّفٌ خطر لا
+            // يمحو شيئًا ولا ينقل مجلدًا خارج البيانات.
+            assert!(s.purge(bad).is_err(), "محوٌ بمعرّف خطر: {bad}");
+            assert!(s.trash(bad).is_err(), "نقلٌ للسلّة بمعرّف خطر: {bad}");
+            assert!(s.restore(bad).is_err(), "استعادةٌ بمعرّف خطر: {bad}");
         }
         let _ = fs::remove_dir_all(&s.root);
     }
 
-    /// **الحذف يمحو المستند وسجله معًا** — `remove_dir_all` على مجلده.
-    ///
-    /// وهو ما يجعل الحذف بلا سلّة فقدًا لا رجعة فيه: اللقطات تذهب مع
-    /// المستند، ومنها لقطة الأمان التي تسبق كل استعادة. القاعدة مقصودة
-    /// ومقيسة هنا كي لا تتغيّر صامتة — `Luma.md` §٢٠ مسألة ١٩.
+    /// **المحو النهائي يمحو المستند وسجله معًا** — `remove_dir_all` على
+    /// مجلده. `purge()` لا يقع في مسار المنتج العادي إلا لمستندٍ لا
+    /// كلمة فيه ولا لقطة — الحذف المعتاد `trash()` أدناه.
     #[test]
-    fn delete_removes_the_document_with_its_revisions() {
-        let s = store("delete");
+    fn purge_removes_the_document_with_its_revisions() {
+        let s = store("purge");
         s.save(&doc("d1", "نصّ يُمحى")).unwrap();
         let dir = s.dir_for("d1");
         // لقطة داخل مجلد المستند — تمثّل سجله الزمني
@@ -381,12 +542,155 @@ mod tests {
         fs::write(dir.join("revisions/r1.json"), b"{}").unwrap();
         assert!(s.path_for("d1").exists());
 
-        s.delete("d1").unwrap();
+        s.purge("d1").unwrap();
 
-        assert!(!dir.exists(), "بقي مجلد المستند بعد الحذف");
+        assert!(!dir.exists(), "بقي مجلد المستند بعد المحو");
         assert!(matches!(s.load("d1"), Err(StoreError::NotFound)));
         let (list, _) = s.list().unwrap();
         assert!(list.iter().all(|d| d.id != "d1"), "المحذوف باقٍ في المكتبة");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الحذف المعتاد ينقل لا يمحو** — المستند وسجله ينتقلان إلى
+    /// السلّة كاملَين، ويختفيان من المكتبة والقرص لأن `Documents/` لم
+    /// يعودا فيه، لا لأن حقلًا يُخفيهما. ADR ٠٠١٩.
+    #[test]
+    fn trash_moves_the_document_with_its_revisions_out_of_the_library() {
+        let s = store("trash");
+        s.save(&doc("d1", "نصّ يُنقل")).unwrap();
+        let live_dir = s.dir_for("d1");
+        fs::create_dir_all(live_dir.join("revisions")).unwrap();
+        fs::write(live_dir.join("revisions/r1.json"), b"{}").unwrap();
+
+        s.trash("d1").unwrap();
+
+        assert!(!live_dir.exists(), "بقي مجلد المستند في Documents/");
+        assert!(
+            matches!(s.load("d1"), Err(StoreError::NotFound)),
+            "لا يزال يُقرأ من موضعه القديم"
+        );
+        let (list, _) = s.list().unwrap();
+        assert!(
+            list.iter().all(|d| d.id != "d1"),
+            "المنقول إلى السلّة باقٍ في المكتبة"
+        );
+
+        let trashed_dir = s.trash_dir_for("d1");
+        assert!(trashed_dir.exists(), "لم يصل مجلد المستند إلى Trash/");
+        assert!(
+            trashed_dir.join("revisions/r1.json").exists(),
+            "سجله لم يصل معه"
+        );
+
+        let (trash, _) = s.list_trash().unwrap();
+        assert_eq!(trash.len(), 1);
+        assert_eq!(trash[0].id, "d1");
+        assert!(trash[0].deleted_at > 0, "لم يُختم وقت الحذف");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الاستعادة تعيد المستند بسجله كاملًا وتصفّر الختم.**
+    #[test]
+    fn restore_brings_the_document_back_with_its_history() {
+        let s = store("restore");
+        s.save(&doc("d1", "نصّ يُستعاد")).unwrap();
+        fs::create_dir_all(s.dir_for("d1").join("revisions")).unwrap();
+        fs::write(s.dir_for("d1").join("revisions/r1.json"), b"{}").unwrap();
+        s.trash("d1").unwrap();
+
+        s.restore("d1").unwrap();
+
+        assert!(
+            !s.trash_dir_for("d1").exists(),
+            "بقي في Trash/ بعد الاستعادة"
+        );
+        let back = s.load("d1").unwrap();
+        assert_eq!(back.deleted_at, None, "لم يُصفَّر ختم الحذف");
+        assert!(
+            s.dir_for("d1").join("revisions/r1.json").exists(),
+            "سجله لم يعد معه"
+        );
+        let (list, _) = s.list().unwrap();
+        assert!(list.iter().any(|d| d.id == "d1"), "لم يعد ظاهرًا في المكتبة");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// استعادة ما ليس في السلّة خطأ صريح لا نجاحٌ صامت.
+    #[test]
+    fn restoring_what_is_not_in_trash_is_an_error() {
+        let s = store("restore-missing");
+        assert!(s.restore("ghost").is_err());
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// يضبط `deletedAt` مباشرة على القرص — الحذف الحقيقي يقع خلال
+    /// ميلي‌ثوانٍ، فلا فارق زمني حقيقي يُنتج فرق أيام يحتاجه هذا
+    /// الاختبار؛ التحكم المباشر أصدق من `sleep` طويل.
+    fn set_deleted_at(s: &DocumentStore, id: &str, at: i64) {
+        let path = s.trash_dir_for(id).join("document.json");
+        let bytes = fs::read(&path).unwrap();
+        let mut v: serde_json::Value = serde_json::from_slice(&bytes).unwrap();
+        v["deletedAt"] = serde_json::Value::from(at);
+        fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+    }
+
+    /// **الكسح يمحو ما تجاوز المهلة وحده ويُبقي الباقي.**
+    #[test]
+    fn sweep_expired_purges_only_what_passed_retention() {
+        let s = store("sweep");
+        s.save(&doc("old", "قديم")).unwrap();
+        s.trash("old").unwrap();
+        s.save(&doc("recent", "حديث")).unwrap();
+        s.trash("recent").unwrap();
+
+        // "قديم" حُذف قبل ٣١ يومًا من المرجع، و"حديث" قبل ٥ أيام فقط
+        let now = 1_000_000_000_000i64;
+        set_deleted_at(&s, "old", now - TRASH_RETENTION_MS - DAY_MS);
+        set_deleted_at(&s, "recent", now - 5 * DAY_MS);
+
+        let purged = s.sweep_expired(now, TRASH_RETENTION_MS).unwrap();
+        assert_eq!(purged, 1);
+
+        let (remaining, _) = s.list_trash().unwrap();
+        assert_eq!(remaining.len(), 1);
+        assert_eq!(remaining[0].id, "recent", "الكسح مسّ ما لم تنتهِ مهلته");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الإفراغ اليدوي يمحو كل شيء بصرف النظر عن العمر.**
+    #[test]
+    fn empty_trash_purges_everything_regardless_of_age() {
+        let s = store("empty-trash");
+        s.save(&doc("a", "أ")).unwrap();
+        s.trash("a").unwrap();
+        s.save(&doc("b", "ب")).unwrap();
+        s.trash("b").unwrap();
+
+        let purged = s.empty_trash().unwrap();
+        assert_eq!(purged, 2);
+        let (remaining, _) = s.list_trash().unwrap();
+        assert!(remaining.is_empty());
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// لقطة تالفة في السلّة لا تُسقط قائمتها — القاعدة نفسها في `list()`.
+    #[test]
+    fn list_trash_skips_damaged_without_failing() {
+        let s = store("trash-damaged");
+        s.save(&doc("ok1", "سليم")).unwrap();
+        s.trash("ok1").unwrap();
+        s.save(&doc("bad1", "سيتلف")).unwrap();
+        s.trash("bad1").unwrap();
+        fs::write(
+            s.trash_dir_for("bad1").join("document.json"),
+            "تالف".as_bytes(),
+        )
+        .unwrap();
+
+        let (list, damaged) = s.list_trash().unwrap();
+        assert_eq!(list.len(), 1);
+        assert_eq!(list[0].id, "ok1");
+        assert_eq!(damaged, vec!["bad1"]);
         let _ = fs::remove_dir_all(&s.root);
     }
 
@@ -406,11 +710,11 @@ mod tests {
         let _ = fs::remove_dir_all(&s.root);
     }
 
-    /// حذف ما ليس موجودًا ليس خطأً: المغادرة لا تتعثّر بمستند سبق محوه.
+    /// محو ما ليس موجودًا ليس خطأً: المغادرة لا تتعثّر بمستند سبق محوه.
     #[test]
-    fn deleting_what_is_not_there_is_not_an_error() {
-        let s = store("delete-missing");
-        assert!(s.delete("ghost").is_ok());
+    fn purging_what_is_not_there_is_not_an_error() {
+        let s = store("purge-missing");
+        assert!(s.purge("ghost").is_ok());
         let _ = fs::remove_dir_all(&s.root);
     }
 }

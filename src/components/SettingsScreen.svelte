@@ -9,12 +9,15 @@
   import Badge from "./Badge.svelte";
   import IconButton from "./IconButton.svelte";
   import Icon from "./Icon.svelte";
+  import EmptyState from "./EmptyState.svelte";
+  import TrashRow from "./TrashRow.svelte";
   import { THEMES, type ThemeId } from "../tokens/themes";
   import { SECTIONS, type SettingsSectionId } from "../lib/settings";
   import { LIMITS, type Preferences } from "../lib/preferences.svelte";
   import { coverageBadge, coverageLabel, type FontReference } from "../lib/fonts";
   import { arabicDigits, isolate } from "../lib/bidi";
   import { surfaceIn, surfaceOut } from "../lib/transitions";
+  import type { TrashCard } from "../lib/library";
 
   /**
    * شاشة الإعدادات (`125:73` وما بعدها).
@@ -31,11 +34,19 @@
     fonts,
     version,
     dataDir,
+    trash = [],
+    trashDamaged = [],
+    trashRetentionMs = 0,
+    trashBusyIds = new Set(),
+    emptyingTrash = false,
+    now = Date.now(),
     onsection,
     onchange,
     onpickfont,
     onclose,
     onproject = () => {},
+    ontrashrestore = () => {},
+    ontrashempty = () => {},
     inert = false,
   }: {
     prefs: Preferences;
@@ -43,12 +54,23 @@
     fonts: readonly FontReference[];
     version: string;
     dataDir: string;
+    /** محتوى السلّة — قسم «السلة» أدناه. ADR ٠٠١٩. */
+    trash?: readonly TrashCard[];
+    /** عناصر سلّة تعذّرت قراءتها — تُعرض ولا تُخفى، كنظيرتها في المكتبة. */
+    trashDamaged?: readonly string[];
+    trashRetentionMs?: number;
+    /** معرّفات العناصر الجاري استعادتها الآن — مجموعة لا خانة واحدة. */
+    trashBusyIds?: ReadonlySet<string>;
+    emptyingTrash?: boolean;
+    now?: number;
     onsection: (id: SettingsSectionId) => void;
     onchange: <K extends keyof Preferences>(key: K, value: Preferences[K]) => void;
     onpickfont: () => void;
     onclose: () => void;
     /** يفتح صفحة المشروع في متصفح النظام. */
     onproject?: () => void;
+    ontrashrestore?: (id: string) => void;
+    ontrashempty?: () => void;
     /** تُرفع حين تعلوها ورقة الخط، فتخرج من مسار التركيز — §١٣. */
     inert?: boolean;
   } = $props();
@@ -62,6 +84,23 @@
   let root = $state<HTMLElement | null>(null);
   $effect(() => {
     root?.focus();
+  });
+
+  /**
+   * **يعيد التركيز إن أفلت إلى `<body>` بعد أن أزال تغيّرٌ في السلّة
+   * الصفّ الذي كان عليه.**
+   *
+   * استعادة عنصر أو إفراغ السلة يزيلان صفّه من الشجرة، وتركيزٌ كان
+   * عليه يسقط — بحسب سلوك المتصفح القياسي عند إزالة العنصر المركَّز —
+   * إلى `<body>`: خارج هذه الشاشة `aria-modal="true"` تمامًا، فيبدأ
+   * `Tab` التالي من رأسها بدل مكانه. كشفته مراجعة خصومية على ADR ٠٠١٩
+   * (٢٦ أغسطس ٢٠٢٦). الجذر مضمون الوجود والتركيز دومًا، فهو الملاذ
+   * الآمن — نمط `root?.focus()` أعلاه نفسه لحظة الفتح.
+   */
+  $effect(() => {
+    void trash.length;
+    if (typeof document === "undefined") return;
+    if (document.activeElement === document.body) root?.focus();
   });
 
   const current = $derived(SECTIONS.find((s) => s.id === section) ?? SECTIONS[0]!);
@@ -332,6 +371,58 @@
               الأرقام اللاتينية للسلاسل التقنية فقط. وموضع أزرار نافذة
               {isolate("macOS")} يقرّره النظام لا {isolate("Luma")}.
             </p>
+          </section>
+
+        {:else if section === "trash"}
+          <section class="group" aria-label="السلة">
+            {#if trash.length === 0}
+              <EmptyState
+                icon="history"
+                title="السلة فارغة"
+                hint="المستندات المحذوفة تظهر هنا، قابلة للاستعادة بسجلها."
+              />
+            {:else}
+              <!-- `role="list"` صريح — الشرح في `LibraryPanel`. -->
+              <ul class="trash-list" role="list">
+                {#each trash as t (t.id)}
+                  <li>
+                    <TrashRow
+                      doc={t}
+                      retentionMs={trashRetentionMs}
+                      {now}
+                      busy={trashBusyIds.has(t.id) || emptyingTrash}
+                      onrestore={ontrashrestore}
+                    />
+                  </li>
+                {/each}
+              </ul>
+              <div class="trash-empty-all">
+                <!--
+                  **إقصاءٌ متبادَل مع أي استعادة قيد التنفيذ** — لا
+                  `emptyingTrash` وحدها. بلا هذا كان يمكن الضغط على
+                  «إفراغ» أثناء استعادة صفّ، فيتقاطعان على `Trash/<id>`
+                  نفسه في النواة — مراجعة خصومية على ADR ٠٠١٩.
+                -->
+                <Button
+                  kind="destructive"
+                  size="sm"
+                  loading={emptyingTrash}
+                  disabled={emptyingTrash || trashBusyIds.size > 0}
+                  onclick={ontrashempty}
+                  data-empty-trash
+                >
+                  إفراغ السلة الآن
+                </Button>
+              </div>
+            {/if}
+            {#if trashDamaged.length > 0}
+              <!-- عنصر سلّة تالف يُعرض ولا يُخفى ولا يُحذف — §١٤، ونمط `LibraryPanel` نفسه -->
+              <Alert
+                kind="caution"
+                title="عناصر في السلة تعذّرت قراءتها"
+                detail="بقيت ملفاتها كما هي ولم تُمسّ. بقية السلة تعمل."
+              />
+            {/if}
           </section>
 
         {:else}
@@ -622,6 +713,19 @@
     overflow-wrap: anywhere;
     display: inline-block;
     text-align: start;
+  }
+
+  .trash-list {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: flex;
+    flex-direction: column;
+  }
+  .trash-empty-all {
+    display: flex;
+    justify-content: flex-start;
+    padding-block-start: var(--space-008);
   }
 
   .themes {

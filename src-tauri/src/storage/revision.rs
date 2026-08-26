@@ -128,6 +128,27 @@ impl RevisionStore {
         Ok(out)
     }
 
+    /// هل يوجد أي ملف لقطة على القرص — سليمًا أو تالفًا؟
+    ///
+    /// **متعمَّدة الاختلاف عن `list()`.** تلك تُسقط التالف من العرض
+    /// (§٦: لا يُخفي تلفٌ واحد بقيةَ السجل)؛ وهذه تُجيب سؤالًا آخر:
+    /// أهناك ما يُفقَد لو مُحي المستند فورًا بلا سلّة؟ ملفٌّ تالف
+    /// موجودٌ فعلًا على القرص — وإسقاطه من `list()` لا يعني عدم وجوده.
+    ///
+    /// **اكتشفته مراجعة خصومية على مسار السلّة (ADR ٠٠١٩، ٢٦ أغسطس
+    /// ٢٠٢٦):** `delete_document` كان يحسم «فارغ بلا سلّة» على
+    /// `list().is_empty()`، فتلفٌ في لقطة واحدة يجعل مستندًا له سجل
+    /// فعلي يُقرأ بلا سجل — فيُمحى فورًا (`purge`) بدل أن ينتقل إلى
+    /// السلّة، محوًا نهائيًا للقطاته التالفة **وسليمها إن وُجد** معًا.
+    pub fn has_any_snapshot(&self) -> bool {
+        let Ok(entries) = fs::read_dir(&self.dir) else {
+            return false;
+        };
+        entries
+            .flatten()
+            .any(|e| e.path().extension().and_then(|x| x.to_str()) == Some("json"))
+    }
+
     pub fn load(&self, rev_id: &str) -> Result<Revision> {
         if !rev_id.chars().all(|c| c.is_ascii_digit()) {
             return Err(StoreError::NotFound);
@@ -227,6 +248,7 @@ mod tests {
             created_at: 0,
             updated_at: 0,
             last_opened_at: 0,
+            deleted_at: None,
         }
     }
 
@@ -317,6 +339,35 @@ mod tests {
         assert_eq!(list.len(), 2);
         assert!(list[0].created_at >= list[1].created_at);
         assert_eq!(s.load(&list[0].id).unwrap().blocks[0].text, "الثانية");
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    /// **الحاسم لقرار «فارغ بلا سلّة»: تلفٌ في اللقطة الوحيدة لا يعني
+    /// غيابها.** `list()` تُسقط التالف عمدًا (§٦)، فحسمُ الفراغ على
+    /// طولها كان يُحوّل تلفًا في لقطة إلى محوٍ نهائي — عطلٌ حقيقي
+    /// كشفته مراجعة خصومية. هذا الاختبار يقيس الفرق مباشرةً: `list()`
+    /// فارغة والحقيقة أن ثمّة ملفًا فعلًا.
+    #[test]
+    fn has_any_snapshot_sees_a_corrupt_file_that_list_hides() {
+        let s = store("has-any-corrupt");
+        fs::create_dir_all(&s.dir).unwrap();
+        fs::write(s.path_for("r1"), "تالف لا يُحلَّل").unwrap();
+
+        assert!(
+            s.list().unwrap().is_empty(),
+            "list() لم تُسقط التالف كما يُفترض"
+        );
+        assert!(
+            s.has_any_snapshot(),
+            "تلفٌ في اللقطة الوحيدة جعلها تبدو غائبة تمامًا"
+        );
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
+    #[test]
+    fn has_any_snapshot_is_false_when_nothing_was_ever_created() {
+        let s = store("has-any-none");
+        assert!(!s.has_any_snapshot());
         let _ = fs::remove_dir_all(&s.dir);
     }
 

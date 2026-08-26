@@ -30,6 +30,29 @@ export interface LibraryListing {
   damaged: string[];
 }
 
+/** بطاقة مستند في السلّة — بطاقة المكتبة نفسها ومعها وقت الحذف. ADR ٠٠١٩. */
+export interface TrashCard {
+  id: string;
+  title: string;
+  excerpt: string;
+  wordCount: number;
+  deletedAt: number;
+}
+
+/** تعداد السلّة كما يعود من `list_trash`. */
+export interface TrashListing {
+  documents: TrashCard[];
+  damaged: string[];
+}
+
+/**
+ * مهلة إفراغ السلّة — نسخة الواجهة من `TRASH_RETENTION_MS` في
+ * `src-tauri/src/storage/document.rs`. رقمٌ ثابت لا تفضيل مستخدم، فلا
+ * حاجة لجلبه عبر IPC؛ يتطابقان بالقيمة لا بمرجع مشترك، فأي تغيير في
+ * أحدهما يستدعي تغيير الآخر يدويًا. ADR ٠٠١٩.
+ */
+export const TRASH_RETENTION_MS = 30 * 24 * 60 * 60 * 1000;
+
 /** التشكيل والتطويل لا يُكتبان في البحث عادةً، فلا يجوز أن يمنعا مطابقة. */
 const TASHKEEL = /[ؐ-ًؚ-ٰٟۖ-ۭـ]/g;
 

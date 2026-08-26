@@ -231,26 +231,27 @@ describe("المستند الفارغ يُحذف عند مغادرته", () => {
   }
 
   /**
-   * ⚠️ **المغادرات لا تناديه بعد.** الوصل معلَّق على ثوابت تصطدم
-   * بالقرار ولم تُحسم — [ADR ٠٠١٧](../docs/decisions/0017-clean-start-and-deletion.md).
-   * هذا الحارس يوثّق التعليق: من يصل المغادرة بالكنس يُسقطه، فيقرأ
-   * سببَ التعليق قبل أن يصل — لا بعد أن يمحو مستند أحدهم.
+   * **المغادرات تكنس منذ بناء السلّة** — ADR ٠٠١٩. كانت هذه الحالة
+   * موثَّقةً معلَّقةً (ADR ٠٠١٧) لأن المحو كان نهائيًا بلا تدارك؛
+   * والسلّة تجعله قابلًا للاسترجاع، فالوصل هنا هو الأثر المباشر لبناء
+   * السلّة لا تفصيلًا منفصلًا عنه — القرار نفسه المسجَّل في §٢٠ مسألة ١٩.
    */
-  it("⚠️ معلَّق: المغادرة لا تكنس الفارغ حتى تُحسم ثوابت ADR ٠٠١٧", async () => {
+  it("المغادرة (نصّ جديد أو فتح غيره) تكنس الفارغ من تلقاء نفسها", async () => {
     const e = fakeEditor();
     const { calls, bridge } = tracked();
     const s = session(e, bridge);
-    emptied(e, s);
+    const id = emptied(e, s);
     await s.startNew();
+
+    expect(calls).toContain(`remove:${id}`);
 
     const e2 = fakeEditor();
     const t2 = tracked();
     const s2 = session(e2, t2.bridge);
-    emptied(e2, s2);
+    const id2 = emptied(e2, s2);
     await s2.open("أخرى");
 
-    expect(calls.some((c) => c.startsWith("remove:"))).toBe(false);
-    expect(t2.calls.some((c) => c.startsWith("remove:"))).toBe(false);
+    expect(t2.calls).toContain(`remove:${id2}`);
   });
 
   it("كُتب ثم أُفرغ: الكنس يمحوه بمعرّفه", async () => {

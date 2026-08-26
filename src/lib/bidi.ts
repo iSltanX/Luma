@@ -103,6 +103,29 @@ export function sinceLabel(at: number, now: number = Date.now()): string {
 }
 
 /**
+ * الوقت المتبقي قبل إفراغ عنصر من السلّة تلقائيًا — **بالكلمات لا
+ * بالرموز**، القاعدة نفسها في `sinceLabel`.
+ *
+ * `deletedAt + retentionMs` هو لحظة الإفراغ؛ وما تجاوزها فعلًا (كسحه
+ * الإقلاع أو فتح اللوحة ولم يصل الفارغ إلى الواجهة بعد) يُعرض «تختفي
+ * الآن» لا مدةً سالبة لا معنى لها.
+ */
+export function untilTrashEmptyLabel(
+  deletedAt: number,
+  retentionMs: number,
+  now: number = Date.now(),
+): string {
+  const left = Math.max(0, deletedAt + retentionMs - now);
+  if (left < HOUR) return "تختفي الآن";
+  if (left < DAY) {
+    return `تختفي خلال ${counted(Math.ceil(left / HOUR), ["ساعة", "ساعتين", "ساعات", "ساعة"])}`;
+  }
+  const days = Math.ceil(left / DAY);
+  if (days === 1) return "تختفي غدًا";
+  return `تختفي خلال ${counted(days, ["يوم", "يومين", "أيام", "يومًا"])}`;
+}
+
+/**
  * فرق عدد الكلمات بين لقطتين، نصًّا.
  *
  * «+٤٠» ممنوعة: الإشارة رمز محايد يُرسم ملتبسًا في سطر عربي — §١٦.

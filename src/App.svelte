@@ -29,7 +29,10 @@
     DocumentCard,
     LibraryListing,
     RevisionCard,
+    TrashCard,
+    TrashListing,
   } from "./lib/library";
+  import { TRASH_RETENTION_MS } from "./lib/library";
   import type { SurfaceId } from "./lib/surfaces";
 
   // المرحلة ٦ — المحرر المريح والتخصيص.
@@ -88,6 +91,20 @@
   let documents = $state<DocumentCard[]>([]);
   let damaged = $state<string[]>([]);
   let revisions = $state<RevisionCard[]>([]);
+  // ── السلة — ADR ٠٠١٩ ───────────────────────────────────────
+  let trash = $state<TrashCard[]>([]);
+  let trashDamaged = $state<string[]>([]);
+  /**
+   * معرّفات العناصر الجاري استعادتها — **مجموعة لا خانة واحدة**.
+   *
+   * كانت خانة واحدة (`trashBusyId: string | null`)، فاستعادةُ صفّ
+   * بينما صفٌّ آخر ما زال قيد الاستعادة تكتب فوقها: يُعاد تفعيل زرّ
+   * الأول وهو ما زال في رحلته، ونداءٌ ثانٍ عليه يصطدم بالأول على
+   * `Trash/<id>` نفسه فيعود بخطأ زائف رغم أن الأول نجح فعلًا — كشفته
+   * مراجعة خصومية على ADR ٠٠١٩. المجموعة تجعل كل صفّ يملك حالته.
+   */
+  let trashBusyIds = $state<Set<string>>(new Set());
+  let emptyingTrash = $state(false);
   /** لحظة مرجعية للأزمنة النسبية — تُحدَّث عند فتح لوحة لا كل ثانية. */
   let now = $state(Date.now());
 
@@ -531,6 +548,60 @@
     }
   }
 
+  // ── السلة — ADR ٠٠١٩ ───────────────────────────────────────
+
+  /**
+   * محتوى السلّة — **بعد كسحٍ كسول** يُجريه الأمر نفسه في النواة قبل
+   * أن يعيد القائمة (`list_trash`)، فتصل هنا مسحوبةً بالفعل من كل ما
+   * تجاوز مهلته. لا مؤقّت هنا يكرّر الطلب: القائمة تُحدَّث عند فتح
+   * الإعدادات وحده، كما وُصف في اقتراح السلّة.
+   */
+  async function refreshTrash() {
+    if (!invoke) return;
+    try {
+      const listing = await invoke<TrashListing>("list_trash");
+      trash = listing.documents;
+      trashDamaged = listing.damaged;
+    } catch (e) {
+      console.error("[luma] تعذّر تعداد السلة:", e);
+    }
+  }
+
+  /**
+   * **إقصاءٌ متبادَل مع نفسها ومع الإفراغ — لا زرّ معطَّل وحده.**
+   *
+   * الأزرار المعطَّلة تمنع الكاتب، لكن لا شيء كان يمنع نداءً برمجيًا
+   * ثانيًا لعنصر يُستعاد فعلًا الآن أو أثناء إفراغ السلة — والاثنان
+   * يتقاطعان على `Trash/<id>` نفسه في النواة. الفحص هنا دفاعٌ في
+   * العمق، لا بديل عن القفل الحقيقي في `commands.rs::trash_guard`.
+   */
+  async function restoreFromTrash(id: string) {
+    if (!invoke || trashBusyIds.has(id) || emptyingTrash) return;
+    trashBusyIds.add(id);
+    try {
+      await invoke("restore_document", { id });
+      await refreshTrash();
+      await refreshLibrary();
+    } catch (e) {
+      fail("تعذّرت استعادة المستند", e);
+    } finally {
+      trashBusyIds.delete(id);
+    }
+  }
+
+  async function emptyTrashNow() {
+    if (!invoke || emptyingTrash || trashBusyIds.size > 0) return;
+    emptyingTrash = true;
+    try {
+      await invoke("empty_trash");
+      await refreshTrash();
+    } catch (e) {
+      fail("تعذّر إفراغ السلة", e);
+    } finally {
+      emptyingTrash = false;
+    }
+  }
+
   /**
    * نصّ جديد — المسار الذي لم يكن موجودًا.
    *
@@ -759,7 +830,8 @@
     comfort = false;
     editor.setFocusMode(false);
     settings = true;
-    await refreshFonts();
+    now = Date.now();
+    await Promise.all([refreshFonts(), refreshTrash()]);
   }
 
   /**
@@ -1271,11 +1343,19 @@
       {fonts}
       version={appVersion}
       {dataDir}
+      {trash}
+      {trashDamaged}
+      trashRetentionMs={TRASH_RETENTION_MS}
+      {trashBusyIds}
+      {emptyingTrash}
+      {now}
       onsection={(id) => (settingsSection = id)}
       onchange={setPref}
       onpickfont={() => (fontSheet = true)}
       onclose={closeSettings}
       onproject={openProjectPage}
+      ontrashrestore={restoreFromTrash}
+      ontrashempty={emptyTrashNow}
       inert={fontSheet}
     />
     {#if fontSheet}
