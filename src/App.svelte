@@ -717,7 +717,11 @@
    * الحذف مساحةٌ نظيفة — الترتيب نفسه الذي يتبعه «نصّ جديد».
    */
   async function deleteDocument() {
-    if (!session || !currentId || busy) return;
+    // **الشرط هنا لا عند الزرّ وحده.** `candelete` يعطّل الزرّ، وبندُ
+    // القائمة و⌘⌫ لا يمرّان به — فلولا `previewId` هنا لصار للحذف
+    // بابان بقاعدتين، ولحُذف مستندٌ والكاتب يقرأ نسخةً قديمة منه: نقيض
+    // «لا يُزيل إلا ما يقرؤه الكاتب الآن» التي بها سقط حوار التأكيد.
+    if (!session || !currentId || busy || previewId !== null) return;
     let deleted = false;
     busy = true;
     try {
@@ -823,7 +827,11 @@
         );
         previewId = id;
         previewAt = rev.createdAt;
-        editor.setBlocks(rev.blocks);
+        // **`beginPreview` لا `setBlocks`**: يحفظ الحالة كاملة قبل
+        // العرض، فيعود منها `exitPreview` بالنصّ والتحديد ومكدّس
+        // التراجع معًا. الثاني كان يمسح المكدّس دخولًا وخروجًا،
+        // فتُغيّر معاينةٌ «قراءةٌ فقط» المستندَ الحالي فعلًا — §٩.
+        editor.beginPreview(rev.blocks);
         selection = false;
         problem = null;
       });
@@ -843,8 +851,15 @@
     previewId = null;
     previewAt = null;
     editor.setEditable(true);
-    // النص الحيّ محفوظ في الجلسة طوال المعاينة، فيعود كما كان
-    if (session) editor.setBlocks(session.contents);
+    // **العودة من اللقطة لا من البُفر.** كان `setBlocks(session.contents)`
+    // يعيد النصّ صحيحًا ويمسح معه مكدّس التراجع والتحديد — فيخرج
+    // الكاتب من معاينةٍ لم يكتب فيها حرفًا وقد فقد تراجعه. واللقطة
+    // تعيد الثلاثة كما كانت.
+    //
+    // والبُفر يبقى احتياطًا: لو لم تكن ثمّة لقطة (معاينةٌ بدأت قبل أن
+    // يُركَّب المحرر، أو حالةٌ لا نعرفها) لا يُترك المحرر على نسخة
+    // قديمة معروضة.
+    if (!editor.endPreview() && session) editor.setBlocks(session.contents);
   }
 
   async function restore(id: string) {
@@ -888,6 +903,11 @@
         previewId = null;
         previewAt = null;
         editor.setEditable(true);
+        // الاستعادة تغيّر المستند قصدًا، فلا عودة إلى ما قبل المعاينة:
+        // شبكةُ أمانها لقطةُ `BeforeRestore` في السجل لا مكدّس التراجع
+        // (§٩). وبلا التخلّي تبقى لقطةٌ حيّة يعود إليها أول `exitPreview`
+        // تالٍ فيمحو النسخة المستعادة من الشاشة.
+        editor.dropPreview();
         activeSession.adopt(result.blocks);
         count = editor.wordCount;
         now = Date.now();
@@ -1135,6 +1155,11 @@
           if (e.payload === "undo") doUndo();
           else if (e.payload === "redo") doRedo();
           else if (e.payload === "settings") void openSettings();
+          // **⌘⌫ وبند «ملف ← حذف النص»** — §٢٠ مسألة ١٨: كان الزرّ
+          // مساره الوحيد، والشريط ينطوي في المحرر المريح فيختفي بلا
+          // بديل. والمسار واحد مع الزرّ: `deleteDocument` بشروطها
+          // كلها (لا مستند، أو معاينة، أو مغادرة جارية).
+          else if (e.payload === "delete") void deleteDocument();
         }),
       );
 

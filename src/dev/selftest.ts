@@ -295,6 +295,60 @@ export async function runSelfTest(
     }
   }
 
+  // ── ٣أ٣ · المعاينة لا تمسّ مكدّس التراجع ───────────────────
+  //
+  // «المعاينة قراءةٌ فقط ولا تمسّ المستند الحالي» — `Luma.md` §٩
+  // **ثابت**. وكانت تمسح المكدّس **مرّتين** (دخولًا وخروجًا) لأنها
+  // تمرّ بـ`setBlocks`، فيعود الكاتب من معاينةٍ لم يكتب فيها حرفًا
+  // وقد فقد تراجعه. صار الأمر مرئيًا بزرّي القرار ٤، وهذا حارسه.
+  {
+    editor.setBlocks([{ id: "t3a3", role: "body", text: "", marks: [] }]);
+    editor.focus();
+    await paint();
+    type("الجملة الأولى");
+    await wait(700); // أطول من نافذة التجميع، فدفقتان لا واحدة
+    type(" والثانية");
+    await paint();
+
+    const before = {
+      u: editor.undoDepth,
+      text: editor.getBlocks()[0]?.text ?? "",
+    };
+
+    // معاينة نسخة قديمة ثم الخروج منها بلا استعادة
+    editor.beginPreview([{ id: "old", role: "body", text: "نسخةٌ قديمة", marks: [] }]);
+    await paint();
+    const during = editor.getBlocks()[0]?.text ?? "";
+
+    editor.endPreview();
+    await paint();
+    const after = {
+      u: editor.undoDepth,
+      text: editor.getBlocks()[0]?.text ?? "",
+    };
+
+    // وبعد العودة يعمل التراجع فعلًا — لا العمق وحده
+    editor.undo();
+    await paint();
+    const afterUndo = editor.getBlocks()[0]?.text ?? "";
+
+    const ok =
+      before.u >= 2 &&
+      during === "نسخةٌ قديمة" &&
+      after.text === before.text &&
+      after.u === before.u &&
+      afterUndo !== after.text &&
+      afterUndo.startsWith("الجملة");
+
+    add(
+      "preview-keeps-undo",
+      "المعاينة تعود بالنصّ ومكدّس التراجع كما كانا",
+      ok,
+      `قبل ${before.u} خطوة — أثناءها «${during}» — بعدها ${after.u} خطوة` +
+        ` — والتراجع بعدها أبقى «${afterUndo}»`,
+    );
+  }
+
   // ── ٣ب · المعاينة قراءةٌ فقط: التراجع لا ينفذ منها ──────────
   //
   // `EditorCore.undo` يرفض حين `editable=false` — والزرّان يُعطَّلان

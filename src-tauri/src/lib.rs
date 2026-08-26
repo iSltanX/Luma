@@ -357,6 +357,28 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
         .item(&PredefinedMenuItem::select_all(app, Some("تحديد الكل"))?)
         .build()?;
 
+    // **حذف النص: بندُ قائمة واختصار** — `Luma.md` §٢٠ مسألة ١٨.
+    //
+    // كان الزرّ في شريط الأسطح مساره الوحيد، والشريط ينطوي في المحرر
+    // المريح فيختفي بلا بديل بلوحة المفاتيح — وهي الفجوة التي تسمّيها
+    // المسألة نصًّا. والقائمة تبقى في الوضعين.
+    //
+    // **و⌘⌫ عُرف macOS** لا اختراع: هو «نقل إلى المهملات» في Finder،
+    // ودلالته هنا هي هي — الحذف نقلٌ إلى السلّة (ADR ٠٠١٩) لا محو.
+    //
+    // **وفي قائمة «ملف» لا «تحرير»**: حذفُ مستند فعلٌ على الملف لا على
+    // نصّه، وهذا موضعه في كل تطبيق macOS. ولا يحسم هذا شقَّ المسألة
+    // الآخر («نصّ جديد» زرٌّ أم ⌘N أم بند): يبقى مفتوحًا، وإن صار له
+    // بندٌ يومًا وجد القائمة مبنيّة.
+    //
+    // والبند مفعَّل دائمًا كبندَي التراجع والإعادة، والشرط في الواجهة
+    // (`deleteDocument`): لا مستند، أو معاينة، أو مغادرة جارية — فلا
+    // يقع شيء. القائمة لا تعرف حالة المحرر، والحارس حيث تُعرف.
+    let delete_item =
+        MenuItem::with_id(app, "delete", "حذف النص", true, Some("CmdOrCtrl+Backspace"))?;
+
+    let file_menu = SubmenuBuilder::new(app, "ملف").item(&delete_item).build()?;
+
     let window_menu = SubmenuBuilder::new(app, "نافذة")
         .item(&PredefinedMenuItem::minimize(app, Some("تصغير"))?)
         .item(&PredefinedMenuItem::maximize(app, Some("تكبير"))?)
@@ -368,7 +390,7 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
         .build()?;
 
     MenuBuilder::new(app)
-        .items(&[&app_menu, &edit_menu, &window_menu])
+        .items(&[&app_menu, &file_menu, &edit_menu, &window_menu])
         .build()
 }
 
@@ -448,7 +470,7 @@ pub fn run() {
         .on_menu_event(|app, event| {
             // القص والنسخ واللصق والتحديد تبقى للنظام؛ هذه وحدها تُبثّ.
             let id = event.id().0.as_str();
-            if matches!(id, "undo" | "redo" | "settings") {
+            if matches!(id, "undo" | "redo" | "settings" | "delete") {
                 let _ = app.emit("luma://menu", id);
             } else if id == "quit" {
                 // ⌘Q يسلك طريق الحفظ نفسه الذي يسلكه إغلاق النافذة:

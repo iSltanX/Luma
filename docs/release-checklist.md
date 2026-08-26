@@ -11,7 +11,7 @@
 npm run verify      # أنواع + clippy + fmt + ٢٠٢ اختبار وحدة + ٤٩ اختبار Rust
 npm run test:e2e    # ١٢٣ اختبار Playwright + ٢٠ لقطة مرجعية
 npm run app:build   # Luma.app
-npm run selftest    # ٤٧ فحصًا داخل التطبيق + تسع ميزانيات مبوَّبة
+npm run selftest    # ٤٨ فحصًا داخل التطبيق + تسع ميزانيات مبوَّبة
 ```
 
 الأربعة تخرج بحالة صفرية أو **لا إصدار**. `npm run selftest` يُشغِّل
