@@ -115,6 +115,75 @@ fn window_controls_x(window: tauri::Window) -> Option<f64> {
     }
 }
 
+/// **يمنع القتل الصامت عند تسجيل الخروج أو إعادة التشغيل أو الإطفاء.**
+///
+/// [ADR ٠٠١٨](../../docs/decisions/0018-latent-data-loss-roots.md) —
+/// مسار Dock. `tao` لا تنفّذ `applicationShouldTerminate:` (ثغرةٌ
+/// مفتوحة في المكتبة نفسها — `tauri-apps/tauri#9198` — ومحاولة تسجيل
+/// مندوبٍ خاص تُسقط التطبيق: `rust-windowing/winit#4458`)، فلا سبيل
+/// اليوم لإلغاء الإغلاق أو تأجيله من Luma. لكن هذا وحده — «الإنهاء
+/// المفاجئ» — واجهة Apple القياسية لحالة أخطر: عند تسجيل الخروج أو
+/// إعادة التشغيل أو الإطفاء، قد يقتل macOS العملية مباشرةً بـ`SIGKILL`
+/// **بلا استدعاء `applicationWillTerminate:` أصلًا** إن لم يُخبره
+/// التطبيق أنه يريد التسلسل العادي.
+///
+/// وتعطيله لا يُصلح غياب `applicationShouldTerminate:` — الإنهاء يبقى
+/// غير قابل للإلغاء أو التأجيل من Luma، و⌘Q وإغلاق Dock العاديّان
+/// كانا يمرّان بالتسلسل العادي أصلًا فلا يتغيّر شيء فيهما — لكنه يضمن
+/// حدًّا أدنى: `applicationWillTerminate:` (ومنه حدث `RunEvent::Exit`
+/// الذي تستقبله النواة) **يصل دائمًا**، بدل أن يُقتَل التطبيق صامتًا
+/// بلا أي إشعار في أسوأ سيناريوهات المغادرة.
+///
+/// واجهة Apple موثَّقة قياسية — `NSProcessInfo.disableSuddenTermination()`
+/// — لا تسجيل مندوبٍ ولا تعديل صنفٍ داخليّ من `tao`، فلا خطر التصادم
+/// الذي يُسقط التطبيق في الحالة المذكورة أعلاه.
+#[cfg(target_os = "macos")]
+fn disable_sudden_termination() {
+    use std::ffi::{c_char, c_void, CString};
+
+    extern "C" {
+        fn objc_getClass(name: *const c_char) -> *mut c_void;
+        fn sel_registerName(name: *const c_char) -> *mut c_void;
+        fn objc_msgSend();
+    }
+
+    type SendId = unsafe extern "C" fn(*mut c_void, *mut c_void) -> *mut c_void;
+    type SendVoid = unsafe extern "C" fn(*mut c_void, *mut c_void);
+
+    let Some(class_name) = CString::new("NSProcessInfo").ok() else {
+        return;
+    };
+    let Some(process_info_sel) = CString::new("processInfo").ok() else {
+        return;
+    };
+    let Some(disable_sel) = CString::new("disableSuddenTermination").ok() else {
+        return;
+    };
+
+    // SAFETY: ثلاثتها محدِّدات ثابتة من Foundation. `+processInfo`
+    // بلا وسائط يعيد `NSProcessInfo*` (مِلكٌ مشترك، لا يُحرَّر هنا)،
+    // و`-disableSuddenTermination` بلا وسائط ولا قيمة عائدة — يطابق
+    // `SendVoid` تمامًا. فشلُ الحصول على الصنف أو الكائن (`null`) لا
+    // يُتابَع: أسوأ ما يقع تعطيلٌ لم يحدث، لا عطلٌ في الإقلاع.
+    unsafe {
+        let cls = objc_getClass(class_name.as_ptr());
+        if cls.is_null() {
+            return;
+        }
+        let send_id: SendId = std::mem::transmute(objc_msgSend as *const ());
+        let process_info = send_id(cls, sel_registerName(process_info_sel.as_ptr()));
+        if process_info.is_null() {
+            return;
+        }
+        let send_void: SendVoid = std::mem::transmute(objc_msgSend as *const ());
+        send_void(process_info, sel_registerName(disable_sel.as_ptr()));
+    }
+}
+
+/// خارج macOS لا معنى للإنهاء المفاجئ بمفهوم Cocoa.
+#[cfg(not(target_os = "macos"))]
+fn disable_sudden_termination() {}
+
 /// خارج macOS لا يرسم النظام أزرارًا فوق واجهة Luma.
 #[cfg(not(target_os = "macos"))]
 #[tauri::command]
@@ -393,6 +462,11 @@ pub fn run() {
             }
         })
         .setup(|app| {
+            // **قبل أي شيء آخر.** تسجيل الخروج أو إعادة التشغيل قد
+            // يقتل العملية بلا إشعار إن لم يُخبَر macOS مبكرًا أن
+            // Luma يريد التسلسل العادي — ADR ٠٠١٨ مسار Dock.
+            disable_sudden_termination();
+
             let menu = build_menu(app.handle())?;
             app.set_menu(menu)?;
 
@@ -548,5 +622,21 @@ mod tests {
             s.contains("Application Support"),
             "المسار خارج المكان المتوقع: {s}"
         );
+    }
+
+    /// **حارس تجمّد وتحطّم — لا حارس سلوك.**
+    ///
+    /// لا سبيل لفحص حالة الإنهاء المفاجئ لعملية Rust من داخل اختبار
+    /// وحدة (ليست ملفًّا ولا متغيّر بيئة يُقرآن من الخارج) — التحقّق
+    /// السلوكي الحقيقي يقع على التطبيق الفعلي. ما يحرسه هذا الاختبار
+    /// وحده حقيقيّ ومهمّ: أن نداء `objc_msgSend` الخام لا يُسقط العملية
+    /// (توقيعا `SendId`/`SendVoid` مطابقان لما تعلنه Foundation)، ولا
+    /// يتجمّد — استدعاءان متتاليان يثبتان أن الحالة الداخلية لا تتغيّر
+    /// بطريقة تُعطّل النداء الثاني.
+    #[cfg(target_os = "macos")]
+    #[test]
+    fn disable_sudden_termination_does_not_crash_or_hang() {
+        disable_sudden_termination();
+        disable_sudden_termination();
     }
 }
