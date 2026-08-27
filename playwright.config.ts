@@ -17,7 +17,42 @@ export default defineConfig({
     locale: "ar-SA",
   },
   projects: [
-    { name: "webkit", use: { ...devices["Desktop Safari"] } },
+    /**
+     * حزمة الويب الأصلية — كل ما لا يحتاج جسر التخزين.
+     *
+     * `bridge/` مستثناة: لها مشروعها أدناه، ولو دخلت هنا لعملت
+     * مرّتين — مرّةً بلا `installBridge` فتسقط.
+     */
+    {
+      name: "webkit",
+      testIgnore: /bridge\//,
+      use: { ...devices["Desktop Safari"] },
+    },
+    /**
+     * حزمة الجسر — مسار التخزين كاملًا: المكتبة والسجل والسلّة
+     * والمعاينة. الشرح الكامل في `tests/e2e/bridge/mock-bridge.ts`.
+     *
+     * على WebKit كأختها: الأقرب إلى نافذة العرض الفعلية. أما ترتيب
+     * التبويب فيها فعلى Chromium أدناه، للسبب نفسه المشروح هناك.
+     */
+    {
+      name: "webkit-bridge",
+      testMatch: /bridge\/(?!keyboard)[\w-]+\.spec\.ts/,
+      use: { ...devices["Desktop Safari"] },
+    },
+    /**
+     * ترتيب التبويب **والأزرار مضاءة** — يحتاج الجسر وChromium معًا.
+     *
+     * بلا الجسر تبقى «تراجع» و«إعادة» و«حذف» معطَّلةً أبدًا
+     * (`candelete` يشترط `currentId !== null`)، والمعطَّل ليس محطة
+     * تركيز — فدورةُ التبويب المؤكَّدة في `access.spec.ts` خمسة أسماء
+     * لا ثمانية، وترتيب الأزرار الثلاثة لا يُقاس أصلًا.
+     */
+    {
+      name: "chromium-bridge",
+      testMatch: /bridge\/keyboard\.spec\.ts/,
+      use: { ...devices["Desktop Chrome"] },
+    },
     /**
      * الاجتياز بلوحة المفاتيح — على Chromium عمدًا.
      *

@@ -74,6 +74,7 @@ src-tauri/     النواة الأصلية — storage/ والنافذة وال�
 public/fonts/  Cairo وAlmarai مدمجان، بلا شبكة
 scripts/       selftest.sh — بوابة الفحص داخل التطبيق
 tests/         وحدات + حارس الحدود + الميزانيات + e2e/ لـPlaywright
+tests/e2e/bridge/ جسر Tauri مقلَّد — به وحده تصل الحزمة المكتبةَ والسجل والسلّة
 docs/          MAP.md · decisions/ · evidence/ · arabic-battery.md
 docs/site/     ⚠️ مولَّد: صفحة الحالة — `build.mjs` هو المصدر، و`index.html` مخرَج
 ```
