@@ -8,8 +8,8 @@
 ## ١ · البوابات الآلية
 
 ```bash
-npm run verify      # أنواع + clippy + fmt + ٣٢٩ اختبار وحدة + ٧٦ اختبار Rust
-npm run test:e2e    # ١٦٦ اختبار Playwright + ٢٠ لقطة مرجعية
+npm run verify      # أنواع + clippy + fmt + ٣٢٩ اختبار وحدة + ٨٥ اختبار Rust
+npm run test:e2e    # ١٦٧ اختبار Playwright + ٢٠ لقطة مرجعية
 npm run app:build   # Luma.app
 npm run selftest    # ٤٩ فحصًا داخل التطبيق + تسع ميزانيات مبوَّبة
 ```

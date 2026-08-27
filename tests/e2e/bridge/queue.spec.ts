@@ -3,6 +3,7 @@ import {
   EDITOR,
   HISTORY,
   HISTORY_ROWS,
+  NEWDOC,
   currentDocId,
   dump,
   editorText,
@@ -32,7 +33,49 @@ import {
  * معًا. وحراسةُ الطابور بمفرده تحتاج اختبار وحدة على `EditorSession`،
  * وهو قائمٌ فعلًا (`tests/session.test.ts`) — لكنه يقيس أن الطابور
  * يسلسل ما يُوضع فيه، لا أنّ `preview()` توضع فيه.
+ *
+ * **الاختبارات الثلاثة أدناه تتجاوز الحاجز المرسوم عمدًا** (`b.disabled
+ * = false`) لتبلغ الحاجز الدالّي `busy` — القاعدة لا آليّتها. ولذلك هي
+ * لا تثبت شيئًا عن `cannew={!busy}` نفسه (عطل «نصّ جديد» لا يخفت أثناء
+ * الانشغال — أُصلح في S2). الاختبار التالي وحده يقيس **الحاجز المرسوم**
+ * بلا تجاوز — مراجعة الإقفال في S9 وجدت أنه لم يكن محروسًا قط.
  */
+test("«نصّ جديد» يخفت فعليًا أثناء رحلة استعادة — عطل S2 (لا أ/٩)", async ({
+  page,
+}) => {
+  await open(page);
+  await page.locator(EDITOR).click();
+  await typeParagraph(page, longParagraph(1));
+  const id = await currentDocId(page);
+  await waitRevisions(page, id, 1);
+  await page.keyboard.press("Enter");
+  await typeParagraph(page, longParagraph(2), { newGroup: false });
+  await waitRevisions(page, id, 2);
+
+  await page.click(HISTORY);
+  const rows = page.locator(HISTORY_ROWS);
+  await expect(rows.nth(1)).toBeVisible();
+  const n = await rows.count();
+  await rows.nth(n - 1).click(); // معاينة أقدم لقطة — الاستعادة تحتاجها أولًا
+  await expect
+    .poll(() => page.$eval(EDITOR, (el) => el.getAttribute("contenteditable")))
+    .toBe("false");
+
+  await page.evaluate(() => window.__luma.delay("restore_revision", 900));
+  await page.click("[data-restore]", { noWaitAfter: true });
+
+  // الحاجز **المرسوم** — بلا أي تجاوز هذه المرة
+  await expect(page.locator(NEWDOC), "لا يخفت أثناء رحلة استعادة").toBeDisabled();
+
+  await expect
+    .poll(() => page.evaluate(() => window.__luma.done("restore_revision")), {
+      timeout: 15_000,
+    })
+    .toBe(1);
+
+  // وتعود إضاءته بانتهاء الرحلة
+  await expect(page.locator(NEWDOC), "بقي خافتًا بعد اكتمال الرحلة").toBeEnabled();
+});
 
 test("«نصّ جديد» أثناء رحلة استعادة لا يخلط المستندين", async ({ page }) => {
   await open(page);
