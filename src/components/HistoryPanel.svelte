@@ -2,7 +2,7 @@
   import RevisionRow from "./RevisionRow.svelte";
   import EmptyState from "./EmptyState.svelte";
   import Button from "./Button.svelte";
-  import { wordDelta } from "../lib/bidi";
+  import { isolate, wordDelta } from "../lib/bidi";
   import type { RevisionCard } from "../lib/library";
 
   /**
@@ -60,7 +60,7 @@
       <EmptyState
         icon="history"
         title="لا توجد نسخ سابقة"
-        hint="يحتفظ Luma بمراحل النص تلقائيًا كلما تقدّمت الكتابة."
+        hint={`يحتفظ ${isolate("Luma")} بمراحل النص تلقائيًا كلما تقدّمت الكتابة.`}
       />
     {:else}
       <!-- `role="list"` صريح — الشرح في `LibraryPanel`. -->

@@ -9,6 +9,8 @@ import { Plugin, PluginKey, type Transaction } from "prosemirror-state";
 import type { Block, BlockRole, InlineMark } from "./blocks";
 import { createBlock, newBlockId } from "./blocks";
 import { schema, NODE_FOR_ROLE, ROLE_FOR_NODE } from "./schema";
+// `bidi.ts` أداة نصّ عامة لا معرفة تخزين أو مكتبة — خارج حدود §٢.
+import { isolate } from "../lib/bidi";
 
 /**
  * محتوى الكتلة عقدًا نصّية، مقطَّعًا عند حدود العلامات.
@@ -64,11 +66,11 @@ export function blocksToDoc(blocks: readonly Block[]): PMNode {
   const source = blocks.length > 0 ? blocks : [createBlock("body", "")];
   const nodes = source.map((b) => {
     const type = schema.nodes[NODE_FOR_ROLE[b.role]];
-    if (!type) throw new Error(`دور كتلة غير معروف: ${b.role}`);
+    if (!type) throw new Error(`دور كتلة غير معروف: ${isolate(String(b.role))}`);
     return type.create({ id: b.id }, inlineFor(b));
   });
   const doc = schema.nodes["doc"];
-  if (!doc) throw new Error("مخطط بلا عقدة doc");
+  if (!doc) throw new Error(`مخطط بلا عقدة ${isolate("doc")}`);
   return doc.create(null, nodes);
 }
 

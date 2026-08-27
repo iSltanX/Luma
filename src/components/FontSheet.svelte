@@ -362,7 +362,11 @@
     color: var(--editor-ink);
   }
   .sample.small {
-    font-size: calc(var(--luma-editor-size) * 0.8);
+    /* ٪٨٠ من مقاس المستخدم — لكن لا دون أرضية ١٢ نقطة (CLAUDE.md
+       بند ٤): أصغر مقاسٍ ممكن للخط (١٤px) × ٪٨٠ = ١١٫٢px، فكان
+       نصٌّ عربي مشكَّل يُرسم دون الحدّ في شاشة مشحونة — والمسوح
+       الآلية لا تصل هذه اللوحة (docs/audit/AUDIT-2026-08-27.md). */
+    font-size: max(12px, calc(var(--luma-editor-size) * 0.8));
   }
 
   .foot {

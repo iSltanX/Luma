@@ -26,6 +26,8 @@ import {
   createBlockMapper,
 } from "./convert";
 import { textToSlice } from "./paste";
+// `bidi.ts` أداة نصّ عامة لا معرفة تخزين أو مكتبة — خارج حدود §٢.
+import { isolate } from "../lib/bidi";
 
 const focusKey = new PluginKey<boolean>("lumaFocusMode");
 
@@ -227,7 +229,7 @@ export class EditorCore {
   // ── دورة الحياة ──────────────────────────────────────────
 
   mount(host: HTMLElement, initial: readonly Block[] = emptyDocument()): void {
-    if (this.view) throw new Error("EditorCore مركّبة بالفعل");
+    if (this.view) throw new Error(`${isolate("EditorCore")} مركّبة بالفعل`);
 
     const state = EditorState.create({
       doc: blocksToDoc(initial),

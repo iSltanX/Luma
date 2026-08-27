@@ -1,6 +1,7 @@
 <script lang="ts">
   import { onMount, onDestroy, tick } from "svelte";
   import { EditorCore, emptyDocument, type Block, type BlockRole } from "./editor";
+  import { SvelteSet } from "svelte/reactivity";
   import Gallery from "./dev/Gallery.svelte";
   import { EditorSession } from "./lib/session";
   import type { SaveState } from "./lib/autosave";
@@ -110,7 +111,16 @@
    * `Trash/<id>` نفسه فيعود بخطأ زائف رغم أن الأول نجح فعلًا — كشفته
    * مراجعة خصومية على ADR ٠٠١٩. المجموعة تجعل كل صفّ يملك حالته.
    */
-  let trashBusyIds = $state<Set<string>>(new Set());
+  /**
+   * **`SvelteSet` لا `Set` عاديّ.** كان `$state<Set>` — وSvelte 5 لا
+   * يوكّل `Set` نفسه (توكيله على الخانة التي تحمله لا محتواه)، فـ
+   * `.add`/`.delete` يُغيّران المجموعة **بلا** أن يُعلما أي قارئ. زرّ
+   * الإفراغ وحلقة `trashBusyIds.has(id)` في `TrashRow` بقيا يريان
+   * الحالة القديمة طوال رحلة استعادة كاملة — «إقصاءٌ متبادَل» موثَّق
+   * في `SettingsScreen.svelte` ولا يُرسم. اكتشفه فحصٌ سلوكي بعزل
+   * الطرفين: التعبير المنطقي (`emptyingTrash`) يُرسم، وطرف المجموعة لا.
+   */
+  let trashBusyIds = new SvelteSet<string>();
   let emptyingTrash = $state(false);
   /** لحظة مرجعية للأزمنة النسبية — تُحدَّث عند فتح لوحة لا كل ثانية. */
   let now = $state(Date.now());
@@ -1186,11 +1196,11 @@
         warn: (because) =>
           because === "refused"
             ? fail(
-                "لم يُغلَق Luma: نصّك لم يصل القرص بعد",
+                `لم يُغلَق ${isolate("Luma")}: نصّك لم يصل القرص بعد`,
                 "نصّك محفوظ في الذاكرة والمحاولة مستمرة. أفرغ مساحة على القرص أو تحقّق من الأذونات، ثم أغلق مرة أخرى. وإن أغلقتَ مرة أخرى وهو لم يصل، ضاع ما لم يُحفَظ — فانسخه قبلها إن أردت.",
               )
             : fail(
-                "لم يُغلَق Luma: نصّك ما زال يصل القرص",
+                `لم يُغلَق ${isolate("Luma")}: نصّك ما زال يصل القرص`,
                 "لا عطل — آخر ما كتبته في الطريق. أمهله لحظة ثم أغلق مرة أخرى. وإن أغلقتَ وهو لم يصل، ضاع آخر ما كتبت.",
               ),
         decline: async () => {
@@ -1203,7 +1213,7 @@
           } catch (e) {
             // نافذةٌ ترفض الإغلاق بلا سبب معلن أسوأ من خطأ مكتوب
             fail(
-              "لم يُغلَق Luma",
+              `لم يُغلَق ${isolate("Luma")}`,
               "وصل نصّك القرص، لكن إغلاق النافذة تعثّر. أعد المحاولة.",
             );
             console.error("[luma] تعذّر هدم النافذة:", e);
@@ -1228,7 +1238,7 @@
       // تحذير، و⌘Q يخرج فورًا. والكاتب يكتب وهو لا يعلم. فيُقال له.
       fail(
         "حماية الإغلاق معطّلة",
-        "تعذّر ربط أحداث النواة، فقد لا يُحفظ نصّك عند الإغلاق. انسخ ما كتبته وأعد تشغيل Luma.",
+        `تعذّر ربط أحداث النواة، فقد لا يُحفظ نصّك عند الإغلاق. انسخ ما كتبته وأعد تشغيل ${isolate("Luma")}.`,
       );
       console.error("[luma] تعذّر ربط أحداث النواة:", e);
     }
@@ -1410,6 +1420,7 @@
     activeSurface={surface}
     ontoggle={toggleSurface}
     onnew={newDocument}
+    cannew={!busy}
     oncomfort={enterComfort}
     ondelete={deleteDocument}
     candelete={currentId !== null && previewId === null && !busy}

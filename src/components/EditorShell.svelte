@@ -33,6 +33,7 @@
     activeSurface = null,
     ontoggle,
     onnew,
+    cannew = true,
     oncomfort,
     ondelete,
     candelete = false,
@@ -64,6 +65,8 @@
     ontoggle: (id: string) => void;
     /** بدء نصّ جديد — لا يُمرَّر في المحرر المريح فيختفي الزر. */
     onnew?: (() => void) | undefined;
+    /** مغادرةٌ جارية أو لا جلسة — القاعدة نفسها التي على `candelete`. */
+    cannew?: boolean;
     /** دخول المحرر المريح — لا يُمرَّر وهو مفتوح. */
     oncomfort?: (() => void) | undefined;
     /** حذف المستند المفتوح — `Luma.md` §٥ **ثابت**. */
@@ -173,6 +176,7 @@
       active={activeSurface}
       {ontoggle}
       onnew={onnew ?? undefined}
+      {cannew}
       oncomfort={oncomfort ?? undefined}
       ondelete={ondelete ?? undefined}
       {candelete}

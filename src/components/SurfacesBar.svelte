@@ -18,6 +18,7 @@
     active = null,
     ontoggle,
     onnew,
+    cannew = true,
     oncomfort,
     ondelete,
     candelete = false,
@@ -31,6 +32,13 @@
     ontoggle: (id: string) => void;
     /** يبدأ نصًّا جديدًا. لا يُمرَّر في المحرر المريح فيختفي الزر. */
     onnew?: (() => void) | undefined;
+    /**
+     * مغادرةٌ جارية أو لا جلسة — الشرط نفسه الذي يمنع `newDocument()`
+     * من الدخول (`App.svelte`). افتراضه `true` كي لا يُكسر استدعاءٌ
+     * قديم بلا هذا الطرف؛ ومن يمرّر `onnew` عليه أن يمرّره أيضًا —
+     * وإلا بقي الزرّ مضيئًا يعد بفعلٍ سيُسقطه `if (busy) return`.
+     */
+    cannew?: boolean;
     /** يدخل المحرر المريح. لا يُمرَّر وهو مفتوح. */
     oncomfort?: (() => void) | undefined;
     /** يحذف المستند المفتوح — `Luma.md` §٥ **ثابت**. */
@@ -101,7 +109,7 @@
          نهاية القراءة في الشريط، حاضرٌ دائمًا وبعيدٌ عن مداخل
          اللوحات فلا يُخلَط بها. -->
     <span data-new-document style:order={entries.length + 2}>
-      <IconButton name="add" label="نصّ جديد" onclick={onnew} />
+      <IconButton name="add" label="نصّ جديد" disabled={!cannew} onclick={onnew} />
     </span>
   {/if}
 
