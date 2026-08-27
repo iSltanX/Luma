@@ -29,7 +29,12 @@ const CONF = JSON.parse(
 ) as {
   identifier: string;
   version: string;
-  app: { security: { csp: string } };
+  app: {
+    security: {
+      csp: string;
+      assetProtocol?: { enable: boolean; scope: string[] };
+    };
+  };
   bundle: {
     targets: string[];
     macOS: {
@@ -152,6 +157,41 @@ describe("الصلاحيات تغطّي ما تستدعيه الواجهة فع�
   });
 });
 
+describe("نطاق بروتوكول الأصول — لا مجلد آخر مكشوف", () => {
+  // [ADR ٠٠٠٩](../docs/decisions/0009-fonts.md:40): «assetProtocol.scope
+  // مقصور على …/Luma/fonts/* وحده… لا مجلد آخر مكشوف» — بند أ/١٠ في
+  // docs/audit/AUDIT-2026-08-27.md: لا شيء كان يقرأ هذه القيمة، فتوسيعها
+  // إلى `["$HOME/**"]` يمرّ vitest كله أخضر. القيمة تُؤكَّد حرفيًا هنا.
+  it("مقصور على مجلد الخطوط وحده، حرفيًا كما تعلن ADR ٠٠٠٩", () => {
+    expect(CONF.app.security.assetProtocol?.scope).toEqual([
+      "$HOME/Library/Application Support/Luma/fonts/*",
+    ]);
+  });
+
+  // ADR ٠٠٠٩ نفسها تقول «ولا data: في CSP» — عن **الخطوط** تحديدًا
+  // (رفض ترميز base64 لصالح بروتوكول الأصول، :77). img-src منفصلةٌ عن
+  // font-src ولا تدخل تلك الجملة: `data:` فيها فعلًا مستعملة —
+  // `index.html:9`: `<link rel="icon" href="data:," />` يمنع طلب
+  // favicon.ico الضمني (رابط بيانات فارغ حرفيًا، بلا محتوًى). فالقيمة
+  // مقصودة لا انحرافًا، والحارس هنا يمنعها من الاتساع صامتة.
+  it("font-src بلا data: كما تعلن ADR ٠٠٠٩ — والخطوط عبر asset: وحده", () => {
+    const csp = CONF.app.security.csp;
+    const font = csp.match(/font-src ([^;]+)/)?.[1] ?? "";
+    expect(font, "font-src يجب ألّا يحمل data: — القرار الصريح في ADR ٠٠٠٩").not.toMatch(
+      /\bdata:/,
+    );
+  });
+
+  it("img-src مقصورة على 'self' وdata: الفارغ — لا اتساع صامت", () => {
+    const csp = CONF.app.security.csp;
+    const img = (csp.match(/img-src ([^;]+)/)?.[1] ?? "").trim().split(/\s+/);
+    expect(
+      img.sort(),
+      "img-src اتّسعت — راجع ما إن كانت data: ما زالت مقصورة على أيقونة data:, الفارغة",
+    ).toEqual(["'self'", "data:"]);
+  });
+});
+
 describe("سطح الشبكة", () => {
   // §١١ **ثابت**: «تخزين على الجهاز، بلا حساب وبلا مزامنة»، ولا قياس
   // تشخيصي. القاعدة تُفرض في ثلاث طبقات، وهذا يحرس اثنتين منها.
@@ -229,9 +269,14 @@ describe("التوزيع يغطّي كل جهاز مدعوم", () => {
     expect(sh).toContain("app:build:universal");
     // ويتحقق بـ`lipo` بدل أن يفترض
     expect(sh).toContain("lipo -archs");
-    expect(sh, "لا حارس يمنع شحن حزمة ناقصة المعمارية").toContain(
-      "ليست عالمية",
-    );
+    // بند ب/٢٣: ثلاث سلاسل منفصلة (app:build:universal · lipo -archs ·
+    // "ليست عالمية") لا تثبت أن `die` فعلًا يستدعي الرسالة — سلسلةٌ
+    // واحدة على نداء `die` الحرفي تثبت أن الذراع يخرج بحالة غير صفرية
+    // فعلًا، لا أن الكلمات موجودة في الملف في أي موضع.
+    expect(
+      sh,
+      'لا حارس يمنع شحن حزمة ناقصة المعمارية — die "الحزمة ليست عالمية" غائبة',
+    ).toContain('die "الحزمة ليست عالمية');
   });
 });
 
