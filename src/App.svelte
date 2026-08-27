@@ -26,6 +26,13 @@
   import { historyReaches } from "./lib/menu";
   import { createCloseRequest } from "./lib/closing";
   import { deriveWindowControlsSide } from "./lib/windowChrome";
+  import {
+    EXTENSION,
+    safeFileName,
+    toMarkdown,
+    toPlainText,
+    type ExportFormat,
+  } from "./lib/export";
   import type { SettingsSectionId } from "./lib/settings";
   import type {
     DocumentCard,
@@ -723,6 +730,51 @@
   }
 
   /**
+   * تصدير المستند المعروض — «ملف ← حفظ بصيغة…»، §٢٠ مسألة ٢٠.
+   *
+   * **يُصدَّر ما على الشاشة لا ما على القرص.** الكتل تُقرأ من المحرر
+   * مباشرةً (`editor.getBlocks()`) لا من التخزين: بينهما نافذةُ الحفظ
+   * التلقائي (٧٠٠ms)، فالقراءة من القرص تُخرج ملفًا ينقصه آخرُ ما
+   * كتبه الكاتب قبل ثانية — وهو أسوأ ما يقع في فعلٍ غايته أخذ نسخة.
+   * ولا `flush()` قبله: التصدير لا يغيّر المستند، ولا داعي لأن ينتظر
+   * قرصًا قد يرفض.
+   *
+   * **وأثناء المعاينة يُصدَّر المعروض** — وهو نسخةٌ قديمة يقرؤها
+   * الكاتب عمدًا؛ الكتل في المحرر هي هي، والقاعدة نفسها: ما تراه هو
+   * ما يُكتب. ولا شرط `previewId` هنا بخلاف الحذف: ذاك يُزيل، وهذا
+   * ينسخ — والنسخ لا يُفقد شيئًا.
+   */
+  async function exportAs(format: ExportFormat) {
+    if (!invoke) return;
+    const blocks = editor.getBlocks();
+    const doc = { title, blocks };
+
+    if (format === "pdf") {
+      // لم تُعتمد بعد — الطباعة إلى PDF تحتاج ورقة أنماط طباعة
+      // (`@media print`) وإلا خرجت صفحةً واحدة بأدوات الواجهة فيها.
+      fail(
+        `تصدير ${isolate("PDF")} لم يكتمل بعد`,
+        `اختر ${isolate("Markdown")} أو نصًّا عاديًا.`,
+      );
+      return;
+    }
+
+    const contents = format === "markdown" ? toMarkdown(doc) : toPlainText(doc);
+    try {
+      await invoke<string | null>("export_document", {
+        contents,
+        fileName: `${safeFileName(title)}.${EXTENSION[format]}`,
+        extension: EXTENSION[format],
+      });
+      // لا رسالة عند النجاح ولا عند الإلغاء: «لا تأكيد مستمر» (§٢ مبدأ ٦)،
+      // والملف نفسه هو الأثر. والإلغاء يعود `null` وهو ليس خطأً.
+    } catch (e) {
+      fail("تعذّر حفظ الملف", e);
+    }
+    editor.focus();
+  }
+
+  /**
    * حذف المستند المفتوح — زرّ «الحذف» في شريط الأسطح، `Luma.md` §٥.
    *
    * بلا حوار تأكيد بقرار، والسلّة هي التدارك (ADR ٠٠١٩). وما بعد
@@ -1172,6 +1224,10 @@
           // بديل. والمسار واحد مع الزرّ: `deleteDocument` بشروطها
           // كلها (لا مستند، أو معاينة، أو مغادرة جارية).
           else if (e.payload === "delete") void deleteDocument();
+          // **«ملف ← حفظ بصيغة…»** — §٢٠ مسألة ٢٠. المعرّف يحمل الصيغة.
+          else if (e.payload.startsWith("export:")) {
+            void exportAs(e.payload.slice("export:".length) as ExportFormat);
+          }
         }),
       );
 

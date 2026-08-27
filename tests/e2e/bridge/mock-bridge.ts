@@ -103,6 +103,8 @@ export interface MockHandle {
   fail(cmd: string, message: string): void;
   /** يرفع كل فشلٍ صناعي. */
   clearFailures(): void;
+  /** آخر ما طُلب تصديره — المحتوى الذي بنته الواجهة، لا ملفٌ كُتب. */
+  lastExport(): { contents: string; fileName: string; extension: string } | null;
 }
 
 declare global {
@@ -159,6 +161,8 @@ export async function installBridge(
     const trash = new Map<string, StoredDoc>();
     const revs = new Map<string, MockRevision[]>();
     let prefs: Record<string, unknown> = {};
+    let lastExport: { contents: string; fileName: string; extension: string } | null =
+      null;
     let revSeq = 0;
 
     const callLog: string[] = [];
@@ -441,6 +445,21 @@ export async function installBridge(
       },
       list_fonts: () => [],
       pick_and_import_font: () => null,
+      /**
+       * التصدير — يُسجَّل ولا يكتب.
+       *
+       * لا لوحة نظام في المتصفح ولا قرص، فالمقلِّد يحفظ آخر ما طُلب
+       * تصديره ليؤكّد عليه الاختبار: **المحتوى الذي بنته الواجهة**
+       * هو الدعوى، والكتابةُ نفسها مسؤولية Rust وتُختبر هناك.
+       */
+      export_document: (a) => {
+        lastExport = {
+          contents: a["contents"] as string,
+          fileName: a["fileName"] as string,
+          extension: a["extension"] as string,
+        };
+        return "/tmp/luma-export/" + (a["fileName"] as string);
+      },
       open_project_page: () => null,
       ui_ready: () => null,
       close_declined: () => null,
@@ -544,6 +563,7 @@ export async function installBridge(
       clearFailures: () => {
         for (const k of Object.keys(failures)) delete failures[k];
       },
+      lastExport: () => lastExport,
     };
 
     // ── الجسر نفسه ──────────────────────────────────────────

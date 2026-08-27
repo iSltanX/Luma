@@ -509,6 +509,50 @@ pub async fn pick_and_import_font(
         .map_err(|e| e.to_string())
 }
 
+/// يكتب نصًّا مصدَّرًا إلى ملفٍ يختاره المستخدم — `Luma.md` §٢٠ مسألة ٢٠.
+///
+/// **الموضع الوحيد في Luma الذي يكتب خارج مجلد بياناتها**
+/// ([ADR ٠٠٢٠](../../docs/decisions/0020-export.md)). وشرطُ ذلك أن
+/// المستخدم اختار المسار بنفسه من لوحة النظام: لا مسار يصل من الواجهة،
+/// ولا كتابة تقع بلا لوحة. الواجهة تُمرّر **المحتوى واسمًا مقترحًا**
+/// وحدهما — فليس في يدها أن تكتب أين شاءت.
+///
+/// **و`async` لا `fn` متزامنة** — يحرسه `no_blocking_call_inside_a_sync_command`
+/// أدناه: `blocking_save_file` على الخيط الرئيسي يجمّد التطبيق، وقد وقع
+/// فعلًا في `pick_and_import_font`.
+#[tauri::command]
+pub async fn export_document(
+    app: tauri::AppHandle,
+    contents: String,
+    file_name: String,
+    extension: String,
+) -> Result<Option<String>, String> {
+    use tauri_plugin_dialog::DialogExt;
+
+    let picked = app
+        .dialog()
+        .file()
+        .set_file_name(&file_name)
+        .add_filter("ملف", &[extension.as_str()])
+        .blocking_save_file();
+
+    let Some(picked) = picked else {
+        // ألغى المستخدم اللوحة — ليس خطأً، ولا رسالة له
+        return Ok(None);
+    };
+    let path = picked
+        .into_path()
+        .map_err(|e| format!("مسار غير صالح: {e}"))?;
+
+    // `write_atomic` لا يُستعمل هنا بقصد: هو لملفات Luma داخل مجلدها،
+    // ويكتب مؤقتًا بجوار الهدف ثم يستبدله — وذلك في مجلد المستخدم
+    // يترك أثرًا لا يخصّه إن انقطع. والتصدير ليس مصدر الحقيقة: فشلُه
+    // لا يفقد نصًّا، والنسخة الحيّة باقية في مجلد البيانات.
+    std::fs::write(&path, contents.as_bytes()).map_err(|e| format!("تعذّرت كتابة الملف: {e}"))?;
+
+    Ok(Some(path.to_string_lossy().into_owned()))
+}
+
 #[cfg(test)]
 mod guards {
     use super::{delete_document_inner, save_document_inner, SavePayload, Storage};

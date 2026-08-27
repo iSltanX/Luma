@@ -377,7 +377,35 @@ fn build_menu<R: Runtime>(app: &tauri::AppHandle<R>) -> tauri::Result<tauri::men
     let delete_item =
         MenuItem::with_id(app, "delete", "حذف النص", true, Some("CmdOrCtrl+Backspace"))?;
 
-    let file_menu = SubmenuBuilder::new(app, "ملف").item(&delete_item).build()?;
+    // **«حفظ بصيغة…» — قائمة فرعية بثلاث صيغ** — `Luma.md` §٢٠ مسألة ٢٠.
+    //
+    // بابٌ واحد للتصدير: لا زرّ في شريط الأسطح (فيبقى «ثلاثة أزرار
+    // حاضرة دائمًا» §٥ **ثابت** على حاله)، ولا صفّ في المكتبة (فقيدُ
+    // §٦ «خارج المكتبة… والتصدير» **ثابت**). وكل بابٍ ثانٍ لفعلٍ
+    // يستلزم قاعدته الخاصة — درسُ الحذف ببابيه (بند أ/٣ في تقرير
+    // الفحص)، وبابٌ واحد أرخص وأأمن.
+    //
+    // **وفوق «حذف النص» بفاصل**: التصدير يُخرج نسخة، والحذف يُزيل
+    // الأصل — فعلان متضادّان لا يتجاوران بلا فصل، ولا يُطرق أحدهما
+    // سهوًا مكان الآخر.
+    //
+    // ولا اختصار للبنود الثلاثة: `⌘S` يَعِد بحفظٍ يدويّ لا وجود له
+    // (§٥ «لا زر حفظ») ويكذّب الحفظ التلقائي، و`⇧⌘S` أقرب لكنه يبقى
+    // مدخلًا ثانيًا لفعلٍ نادر — والقائمة تكفيه.
+    let export_md = MenuItem::with_id(app, "export:markdown", "Markdown", true, None::<&str>)?;
+    let export_txt = MenuItem::with_id(app, "export:text", "نصّ عادٍ", true, None::<&str>)?;
+    let export_pdf = MenuItem::with_id(app, "export:pdf", "PDF", true, None::<&str>)?;
+    let export_menu = SubmenuBuilder::new(app, "حفظ بصيغة…")
+        .item(&export_md)
+        .item(&export_txt)
+        .item(&export_pdf)
+        .build()?;
+
+    let file_menu = SubmenuBuilder::new(app, "ملف")
+        .item(&export_menu)
+        .separator()
+        .item(&delete_item)
+        .build()?;
 
     let window_menu = SubmenuBuilder::new(app, "نافذة")
         .item(&PredefinedMenuItem::minimize(app, Some("تصغير"))?)
@@ -487,6 +515,7 @@ pub fn run() {
             commands::cleanup_selftest,
             commands::list_fonts,
             commands::pick_and_import_font,
+            commands::export_document,
             commands::list_revisions,
             commands::load_revision,
             commands::restore_revision,
@@ -496,7 +525,11 @@ pub fn run() {
         .on_menu_event(|app, event| {
             // القص والنسخ واللصق والتحديد تبقى للنظام؛ هذه وحدها تُبثّ.
             let id = event.id().0.as_str();
-            if matches!(id, "undo" | "redo" | "settings" | "delete") {
+            // بنود التصدير تُبثّ كما هي بمعرّفها (`export:markdown` …):
+            // الواجهة وحدها تعرف كتلَ المستند وعنوانه، والنواة تكتب ما
+            // تُعطاه — لا تقرأ التخزين لتبني نصًّا ثانيًا قد يخالف
+            // المعروض على الشاشة.
+            if matches!(id, "undo" | "redo" | "settings" | "delete") || id.starts_with("export:") {
                 let _ = app.emit("luma://menu", id);
             } else if id == "quit" {
                 // ⌘Q يسلك طريق الحفظ نفسه الذي يسلكه إغلاق النافذة:
