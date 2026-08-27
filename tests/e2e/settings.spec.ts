@@ -156,7 +156,7 @@ test("تقليل الحركة من تفضيل Luma يُضاف إلى تفضيل 
 
 // ── الشاشة ───────────────────────────────────────────────────
 
-test("الأقسام الخمسة، ولا قسم لميزة غير موجودة", async ({ page }) => {
+test("الأقسام الستة، ولا قسم لميزة غير موجودة", async ({ page }) => {
   await openSettings(page);
   const ids = await page.evaluate(() =>
     [...document.querySelectorAll("[data-section]")].map(
@@ -164,7 +164,15 @@ test("الأقسام الخمسة، ولا قسم لميزة غير موجودة
     ),
   );
   // الصوت خارج النطاق حتى تصل خدمته: مفاتيح لا تشغّل شيئًا وعدٌ كاذب
-  expect(ids).toEqual(["appearance", "writing", "comfort", "language", "about"]);
+  // «السلة» أُضيفت مع ADR ٠٠١٩ — التدارك بعد الحذف يستحق قسمًا يراه الكاتب
+  expect(ids).toEqual([
+    "appearance",
+    "writing",
+    "comfort",
+    "language",
+    "trash",
+    "about",
+  ]);
 });
 
 test("لا زر «حفظ الإعدادات» في أي قسم — §١٥ **ثابت**", async ({ page }) => {
