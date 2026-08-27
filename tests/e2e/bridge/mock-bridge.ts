@@ -117,6 +117,12 @@ interface InstallConfig {
   /** مستندات تُبذر قبل إقلاع التطبيق — لاختبار الإقلاع النظيف. */
   seed: MockDoc[];
   seedTrashed: MockDoc[];
+  /**
+   * مشهدٌ يُفتح عند الإقلاع — قيمة `demo_stage` التي يقرؤها
+   * `App.svelte`. `"fonts"` وحدها تفتح ورقة الخط، ولا مدخل آخر لها
+   * في وضع الويب.
+   */
+  stage: string;
 }
 
 /**
@@ -127,13 +133,14 @@ interface InstallConfig {
  */
 export async function installBridge(
   page: Page,
-  opts: { seed?: MockDoc[]; seedTrashed?: MockDoc[] } = {},
+  opts: { seed?: MockDoc[]; seedTrashed?: MockDoc[]; stage?: string } = {},
 ): Promise<void> {
   const config: InstallConfig = {
     retentionMs: MOCK_TRASH_RETENTION_MS,
     minChangeChars: MOCK_MIN_CHANGE_CHARS,
     seed: opts.seed ?? [],
     seedTrashed: opts.seedTrashed ?? [],
+    stage: opts.stage ?? "",
   };
 
   await page.addInitScript((cfg: InstallConfig) => {
@@ -443,7 +450,7 @@ export async function installBridge(
       selftest_mode: () => false,
       selftest_phase: () => "0",
       demo_mode: () => false,
-      demo_stage: () => "",
+      demo_stage: () => cfg.stage,
       gallery_mode: () => false,
       write_report: () => null,
       seed_library: () => null,

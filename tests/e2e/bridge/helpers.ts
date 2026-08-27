@@ -24,7 +24,7 @@ const UNDO_GROUP_GAP_MS = 650;
 /** يفتح التطبيق بجسرٍ مركَّب ومكتبةٍ مبذورة، وينتظر جاهزية المحرر. */
 export async function open(
   page: Page,
-  opts: { seed?: MockDoc[]; seedTrashed?: MockDoc[] } = {},
+  opts: { seed?: MockDoc[]; seedTrashed?: MockDoc[]; stage?: string } = {},
 ): Promise<void> {
   await installBridge(page, opts);
   await page.goto("/");
