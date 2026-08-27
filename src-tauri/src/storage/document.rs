@@ -18,6 +18,33 @@ use super::revision::now_ms;
 /// لا تخزين دائم.
 pub const TRASH_RETENTION_MS: i64 = 30 * 24 * 60 * 60 * 1000;
 
+/// قفل السلّة — **داخل العملية نفسها لا عند مُستدعيها**.
+///
+/// أوامر Tauri تُنفَّذ على خيوط مستقلة، فاستعادةٌ وإفراغٌ متزامنان على
+/// المعرّف نفسه كانا يتقاطعان فعليًا على `Trash/<id>`: `remove_dir_all`
+/// ليست ذرّية — تُفكّك ملفات الدليل واحدًا واحدًا — و`fs::rename` قد
+/// يلتقط دليلًا **نصف مُفرَّغ في تلك اللحظة** فينجح ظاهريًا وقد فقد
+/// سجله بصمت. أُثبت تجريبيًا: ١٠٠٪ من محاولات السباق أعادت `Ok` وصفر
+/// لقطة نجت (ADR ٠٠١٩).
+///
+/// **وموضعه هنا لا في `commands.rs` بقرار.** كان كل أمرٍ يأخذه بنفسه
+/// (`let _guard = storage.trash_guard();`)، وذلك عقدٌ يُنسى: مسارٌ
+/// جديد يمسّ `Trash/` بلا سطر القفل يمرّ خضراء. ولم يكن يحرسه إلا
+/// اختبارٌ **يأخذ القفل بيده داخل خيطه** فيقيس أن `Mutex` يعمل لا أن
+/// الأوامر تأخذه — بندٌ ب/١ في `docs/audit/AUDIT-2026-08-27.md`.
+/// وبوجوده هنا يصير أخذُه جزءًا من العملية لا نداءً يُتذكَّر.
+///
+/// **ساكن لا حقلٌ في `DocumentStore`**: المخزن يُبنى من جديد عند كل
+/// نداء (`Storage::docs()`)، فقفلٌ بداخله يحرس نسخةً لا موردًا.
+static TRASH_LOCK: std::sync::Mutex<()> = std::sync::Mutex::new(());
+
+/// **لا يتجمّد على قفل مسموم**: عطبٌ برمزٍ آخر أثناء حمله لا يجوز أن
+/// يقفل السلّة إلى الأبد — استرجاع المحتوى الداخلي أهون من تعطّل كل
+/// عملية سلّة تالية.
+fn trash_guard() -> std::sync::MutexGuard<'static, ()> {
+    TRASH_LOCK.lock().unwrap_or_else(|e| e.into_inner())
+}
+
 #[derive(Debug)]
 pub enum StoreError {
     Io(String),
@@ -182,6 +209,11 @@ impl DocumentStore {
     /// حالة سويّة تُصلحها أول كتابة تالية (`save_document` يضبط
     /// `deletedAt: null` دومًا)، لا حالة غامضة في السلّة.
     pub fn trash(&self, id: &str) -> Result<()> {
+        let _guard = trash_guard();
+        self.trash_locked(id)
+    }
+
+    fn trash_locked(&self, id: &str) -> Result<()> {
         let mut doc = self.load(id)?;
         doc.deleted_at = Some(now_ms());
         self.save(&doc)?;
@@ -205,6 +237,11 @@ impl DocumentStore {
     /// لو انقلب الترتيب، توقّفٌ بين الخطوتين يترك المستند في `Trash/`
     /// بختمٍ صُفِّر — نقيض ما تحتاجه `sweep_expired` تمامًا.
     pub fn restore(&self, id: &str) -> Result<()> {
+        let _guard = trash_guard();
+        self.restore_locked(id)
+    }
+
+    fn restore_locked(&self, id: &str) -> Result<()> {
         if !is_safe_id(id) {
             return Err(StoreError::NotFound);
         }
@@ -225,6 +262,18 @@ impl DocumentStore {
     /// محتويات السلّة، الأحدث حذفًا أولًا. التالفة تُتخطّى — القاعدة
     /// نفسها في `list()`.
     pub fn list_trash(&self) -> Result<(Vec<TrashSummary>, Vec<String>)> {
+        let _guard = trash_guard();
+        // **الكسح جزءٌ من قراءة السلّة لا نداءٌ يسبقها.**
+        //
+        // كان على مُستدعيها أن يتذكّره (`commands::list_trash`)، فبقي
+        // موضعا الاستدعاء بلا حارس — بندٌ أ/٨. وهنا لا سبيل إلى قراءة
+        // السلّة دون كسحها: صفٌّ تجاوز مهلته لا يُعرض ولو نسي أحدهم.
+        // وأفضل-جهد: تعذُّر الكسح لا يمنع العرض.
+        let _ = self.sweep_expired_locked(now_ms(), TRASH_RETENTION_MS);
+        self.list_trash_locked()
+    }
+
+    fn list_trash_locked(&self) -> Result<(Vec<TrashSummary>, Vec<String>)> {
         let dir = self.trash_dir();
         if !dir.exists() {
             return Ok((Vec::new(), Vec::new()));
@@ -243,7 +292,39 @@ impl DocumentStore {
             let read = read_optional(&path).map_err(StoreError::from);
             match read {
                 Ok(Some(bytes)) => match parse_document(&bytes, &path) {
-                    Ok(d) => out.push(TrashSummary::from(&d)),
+                    Ok(d) => {
+                        let mut s = TrashSummary::from(&d);
+                        // **ختمٌ غائب يُعامَل كأنه الآن، لا كأنه الحقبة.**
+                        //
+                        // `TrashSummary::from` تحوّل `None` إلى صفرٍ
+                        // (`unwrap_or(0)`)، فيراه `sweep_expired` محذوفًا
+                        // منذ عام ١٩٧٠ — أي منتهيَ المهلة بيقين —
+                        // فيمحوه **وكامل سجله** محوًا نهائيًّا عند أول
+                        // إقلاع. وذلك هو الضرر الذي يشرحه تعليق `trash()`
+                        // («الختم يسبق النقل»): توقُّفٌ بين الخطوتين
+                        // بترتيبٍ مقلوب يُنتج بالضبط هذه الحالة.
+                        //
+                        // الترتيب في `trash()` يمنع نشوءها، وهذا يمنع
+                        // أذاها لو نشأت بطريقٍ آخر — حاجزان مستقلان.
+                        // بندُ أ/٢.
+                        //
+                        // **وأثرُه الدقيق: لا تنقضي مهلته أبدًا، لا أن
+                        // تبدأ من جديد.** الختم يُحسب في الذاكرة عند كل
+                        // قراءة ولا يُكتب على القرص — وكتابته من مسار
+                        // قراءة تعني أن يُعدِّل التعدادُ بياناتِ
+                        // المستخدم، وهو أسوأ. فالصفّ يبقى ظاهرًا
+                        // ومستعادًا، ويمحوه الإفراغ اليدوي بلا شرط عمر
+                        // (`empty_trash`). وهو أهون من المحو النهائي
+                        // الذي كان يقع، لكنه **ليس مهلة** — ولذلك يعلو
+                        // القائمةَ دائمًا في ترتيب `deleted_at`
+                        // التنازلي، ويقول صفُّه «تختفي خلال ٣٠ يومًا»
+                        // ولا يفعل. حالةٌ لا سبيل معروف إليها اليوم،
+                        // وتُحتمل ثمنًا لمنع ضياعٍ لا رجعة فيه.
+                        if d.deleted_at.is_none() {
+                            s.deleted_at = now_ms();
+                        }
+                        out.push(s);
+                    }
                     Err(_) => damaged.push(id),
                 },
                 Ok(None) => {}
@@ -258,6 +339,11 @@ impl DocumentStore {
     /// `sweep_expired` و`empty_trash`، ويستعملها أيضًا `cleanup_selftest`
     /// لكنس ما تركته أدوات التطوير هناك.
     pub fn purge_trashed(&self, id: &str) -> Result<()> {
+        let _guard = trash_guard();
+        self.purge_trashed_locked(id)
+    }
+
+    fn purge_trashed_locked(&self, id: &str) -> Result<()> {
         if !is_safe_id(id) {
             return Err(StoreError::NotFound);
         }
@@ -273,10 +359,16 @@ impl DocumentStore {
     /// كسول لا خلفي: يُستدعى عند الإقلاع وعند فتح لوحة السلّة، لا من
     /// مؤقّت يعمل والتطبيق مغلق. **يُبلّغ:** عدد ما مُحي.
     pub fn sweep_expired(&self, now: i64, retention_ms: i64) -> Result<usize> {
-        let (list, _) = self.list_trash()?;
+        let _guard = trash_guard();
+        self.sweep_expired_locked(now, retention_ms)
+    }
+
+    fn sweep_expired_locked(&self, now: i64, retention_ms: i64) -> Result<usize> {
+        let (list, _) = self.list_trash_locked()?;
         let mut purged = 0;
         for s in list {
-            if now.saturating_sub(s.deleted_at) >= retention_ms && self.purge_trashed(&s.id).is_ok()
+            if now.saturating_sub(s.deleted_at) >= retention_ms
+                && self.purge_trashed_locked(&s.id).is_ok()
             {
                 purged += 1;
             }
@@ -286,10 +378,11 @@ impl DocumentStore {
 
     /// يُفرغ السلّة كاملة فورًا — زرّ الإفراغ اليدوي. **يُبلّغ:** عدد ما مُحي.
     pub fn empty_trash(&self) -> Result<usize> {
-        let (list, _) = self.list_trash()?;
+        let _guard = trash_guard();
+        let (list, _) = self.list_trash_locked()?;
         let mut purged = 0;
         for s in list {
-            if self.purge_trashed(&s.id).is_ok() {
+            if self.purge_trashed_locked(&s.id).is_ok() {
                 purged += 1;
             }
         }
@@ -623,6 +716,86 @@ mod tests {
         let _ = fs::remove_dir_all(&s.root);
     }
 
+    /// **الختم يسبق النقل — مقيسًا بالترتيب لا بالحالة النهائية.**
+    ///
+    /// الاختباران القائمان يقيسان ما بعد نجاح `trash()`، والحالة
+    /// النهائية واحدة مهما كان الترتيب. وهذا يمنع النقل عمدًا (ملفٌّ
+    /// يشغل مسار الوجهة فيفشل `fs::rename` على دليل)، ثم يسأل: هل
+    /// كان الختم قد وقع قبله؟ بندُ أ/٢.
+    #[test]
+    fn the_deletion_stamp_lands_before_the_move_not_after() {
+        let s = store("stamp-order");
+        s.save(&doc("d1", "نصّ")).unwrap();
+
+        // نسدّ الوجهة بملف — `rename(dir, file)` يفشل
+        let blocked = s.trash_dir_for("d1");
+        fs::create_dir_all(blocked.parent().unwrap()).unwrap();
+        fs::write(&blocked, "أنا ملف لا مجلد").unwrap();
+
+        assert!(s.trash("d1").is_err(), "النقل نجح رغم أن الوجهة مسدودة");
+
+        // المستند ما زال في `Documents/` — ومختومًا: الختم سبق النقل
+        let left = s.load("d1").expect("المستند اختفى من المكتبة");
+        assert!(
+            left.deleted_at.is_some(),
+            "الختم لم يقع قبل النقل — بترتيبٍ مقلوب يدخل السلّةَ مستندٌ بلا وقتٍ يُقاس منه"
+        );
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **وعنصرٌ في السلّة بلا ختم لا يُمحى بوصفه منتهيًا.**
+    ///
+    /// الحاجز الثاني للقاعدة نفسها: `TrashSummary::from` تحوّل الغياب
+    /// إلى صفر، فيراه الكسح محذوفًا منذ ١٩٧٠ فيمحوه **وكامل سجله**
+    /// عند أول إقلاع. أرخصُ الاحتمالين خطأً منحُه مهلةً كاملة جديدة.
+    #[test]
+    fn a_trashed_document_without_a_stamp_survives_the_sweep() {
+        let s = store("stamp-missing");
+        s.save(&doc("ghost", "نصٌّ ثمين")).unwrap();
+        s.trash("ghost").unwrap();
+
+        // نُفرغ الختم على القرص — محاكاةُ توقُّفٍ بترتيبٍ مقلوب
+        let path = s.trash_dir_for("ghost").join("document.json");
+        let raw = fs::read(&path).unwrap();
+        let mut v: serde_json::Value = serde_json::from_slice(&raw).unwrap();
+        v["deletedAt"] = serde_json::Value::Null;
+        fs::write(&path, serde_json::to_vec(&v).unwrap()).unwrap();
+
+        let purged = s.sweep_expired(now_ms(), TRASH_RETENTION_MS).unwrap();
+        assert_eq!(purged, 0, "مستندٌ بلا ختم مُحي بوصفه منتهيَ المهلة");
+        let (remaining, _) = s.list_trash().unwrap();
+        assert!(
+            remaining.iter().any(|d| d.id == "ghost"),
+            "وغاب عن السلّة أيضًا — فلا هو معروض ولا مُستعاد"
+        );
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **قراءة السلّة تكسح بنفسها** — لا نداءَ يسبقها يمكن أن يُنسى.
+    ///
+    /// كان الكسح سطرًا في `commands::list_trash`، فحذفُه يمرّ خضراء
+    /// ويترك صفوفًا تَعِد بـ«تختفي خلال…» عن مستندات لن تختفي. بندُ أ/٨.
+    #[test]
+    fn listing_the_trash_sweeps_what_expired() {
+        let s = store("lazy-sweep");
+        s.save(&doc("stale", "قديم")).unwrap();
+        s.trash("stale").unwrap();
+        s.save(&doc("fresh", "حديث")).unwrap();
+        s.trash("fresh").unwrap();
+        set_deleted_at(&s, "stale", now_ms() - TRASH_RETENTION_MS - DAY_MS);
+
+        // **بلا نداء `sweep_expired`** — القراءة وحدها
+        let (listed, _) = s.list_trash().unwrap();
+
+        assert_eq!(listed.len(), 1, "القراءة لم تكسح المنتهي");
+        assert_eq!(listed[0].id, "fresh");
+        assert!(
+            !s.trash_dir_for("stale").exists(),
+            "بقي على القرص وإن غاب عن القائمة"
+        );
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
     /// يضبط `deletedAt` مباشرة على القرص — الحذف الحقيقي يقع خلال
     /// ميلي‌ثوانٍ، فلا فارق زمني حقيقي يُنتج فرق أيام يحتاجه هذا
     /// الاختبار؛ التحكم المباشر أصدق من `sleep` طويل.
@@ -643,8 +816,10 @@ mod tests {
         s.save(&doc("recent", "حديث")).unwrap();
         s.trash("recent").unwrap();
 
-        // "قديم" حُذف قبل ٣١ يومًا من المرجع، و"حديث" قبل ٥ أيام فقط
-        let now = 1_000_000_000_000i64;
+        // **المرجع هو الآن الحقيقي لا حقبةً ثابتة.** `list_trash()`
+        // صارت تكسح بنفسها بساعة النظام (بندُ أ/٨)، فمرجعٌ من عام
+        // ٢٠٠١ يجعل كل ما في السلّة منتهيًا في نظرها.
+        let now = now_ms();
         set_deleted_at(&s, "old", now - TRASH_RETENTION_MS - DAY_MS);
         set_deleted_at(&s, "recent", now - 5 * DAY_MS);
 
@@ -654,6 +829,33 @@ mod tests {
         let (remaining, _) = s.list_trash().unwrap();
         assert_eq!(remaining.len(), 1);
         assert_eq!(remaining[0].id, "recent", "الكسح مسّ ما لم تنتهِ مهلته");
+        let _ = fs::remove_dir_all(&s.root);
+    }
+
+    /// **الكسح يحترم `now` الممرَّر لا ساعة النظام.**
+    ///
+    /// الاختبار أعلاه صار يمرّر `now_ms()` (لأن `list_trash` تكسح
+    /// بساعة النظام الآن)، فتطابَق الوسيطُ والساعةُ وسقط تثبيتُه:
+    /// تطبيقٌ يتجاهل `now` تمامًا كان يمرّ خضراء. وهذا يفرّق بينهما
+    /// بمرجعٍ في الماضي السحيق: من يحترم الوسيط لا يجد شيئًا منتهيًا.
+    #[test]
+    fn sweep_expired_honours_the_reference_time_it_is_given() {
+        let s = store("sweep-now-arg");
+        s.save(&doc("old", "قديم")).unwrap();
+        s.trash("old").unwrap();
+        set_deleted_at(&s, "old", now_ms() - TRASH_RETENTION_MS - DAY_MS);
+
+        // مرجعٌ أقدم من الحذف نفسه: `saturating_sub` يعطي صفرًا
+        let purged = s
+            .sweep_expired(now_ms() - 100 * DAY_MS, TRASH_RETENTION_MS)
+            .unwrap();
+
+        assert_eq!(purged, 0, "الكسح تجاهل `now` الممرَّر واستعمل ساعة النظام");
+        // **الفحص على القرص لا عبر `list_trash`** — تلك تكسح بنفسها
+        assert!(
+            s.trash_dir_for("old").exists(),
+            "مُحي المستند رغم أن المرجع الممرَّر يسبق حذفه"
+        );
         let _ = fs::remove_dir_all(&s.root);
     }
 

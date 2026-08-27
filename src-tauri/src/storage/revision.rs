@@ -327,6 +327,39 @@ mod tests {
         let _ = fs::remove_dir_all(&s.dir);
     }
 
+    /// **العتبة عند ٨٠ حرفًا بالضبط — لا في مدًى واسع.**
+    ///
+    /// الاختبار أعلاه يحصر `MIN_CHANGE_CHARS` بين ١١ و٢٠٠: أيُّ قيمة
+    /// في المدى تُرضيه، و`80` لا يظهر في شجرة Rust إلا في تعريفه.
+    /// وADR ٠٠٠٦ يسمّي الرقم نصًّا («تغيّر جوهري: ٨٠ حرفًا فأكثر»)،
+    /// فيُقاس عند حدّه. بندُ ب/٢٢.
+    ///
+    /// **والأعداد هنا حرفية لا مشتقّة من الثابت** — عمدًا: اختبارٌ
+    /// يكتب `base + MIN_CHANGE_CHARS` يرضى بأي قيمةٍ للثابت، فيقيس
+    /// اتّساقه مع نفسه لا مطابقته لما تُعلنه الوثيقة.
+    #[test]
+    fn the_snapshot_threshold_is_exactly_eighty_characters() {
+        let s = store("threshold-edge");
+        let base = 1_000;
+        s.create(&doc(&"ا".repeat(base)), RevisionSource::Automatic)
+            .unwrap();
+
+        assert!(
+            !s.should_snapshot(&doc(&"ا".repeat(base + 79))).unwrap(),
+            "٧٩ حرفًا ألقطت — العتبة أدنى مما يُعلنه ADR ٠٠٠٦"
+        );
+        assert!(
+            s.should_snapshot(&doc(&"ا".repeat(base + 80))).unwrap(),
+            "٨٠ حرفًا لم تُلقِط — العتبة أعلى مما يُعلنه ADR ٠٠٠٦"
+        );
+        // والنقصان كالزيادة: `abs_diff` لا اتجاه له
+        assert!(
+            s.should_snapshot(&doc(&"ا".repeat(base - 80))).unwrap(),
+            "حذفُ ٨٠ حرفًا لم يُلقِط"
+        );
+        let _ = fs::remove_dir_all(&s.dir);
+    }
+
     #[test]
     fn snapshots_round_trip_and_sort_newest_first() {
         let s = store("sort");

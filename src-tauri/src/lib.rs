@@ -423,6 +423,32 @@ fn ui_ready() {
     UI_READY.store(true, std::sync::atomic::Ordering::SeqCst);
 }
 
+/// ما يقع عند طلب إغلاق نافذة — **المنع والبثّ قرارٌ واحد مفصول**.
+///
+/// «المنع أولًا، ثم البثّ مرة واحدة… **المنع لا يُشترط بالمزلاج؛
+/// البثّ وحده يُشترط به**» — ADR ٠٠١٨. كان الشرطان مضمَّنين في ذراع
+/// `WindowEvent::CloseRequested`، ولا حزمةَ تشغّل ذلك الذراع: `cargo`
+/// لا يفتح نافذة، والفحص الذاتي يقتل العملية بدل أن يطلب إغلاقًا
+/// (بندُ أ/١). فنقلُ المنع داخل شرط المزلاج كان يمرّ أخضر — ونقرةٌ
+/// ثانية على الزرّ الأحمر بينما الأولى تنتظر القرص تجد المزلاج
+/// مأخوذًا، فلا تُمنع، فتُهدم النافذة **بلا حفظ**.
+#[derive(Debug, PartialEq, Eq)]
+struct ClosePlan {
+    /// يُمنع الإغلاق — بصرف النظر عن المزلاج.
+    prevent: bool,
+    /// تُخطَر الواجهة لتُفرغ ما لديها — مرة واحدة.
+    emit: bool,
+}
+
+/// `ready`: سجّلت الواجهة مستمعها · `first_request`: هذا أول طلبٍ
+/// يستهلك المزلاج.
+fn close_request_plan(ready: bool, first_request: bool) -> ClosePlan {
+    ClosePlan {
+        prevent: ready,
+        emit: ready && first_request,
+    }
+}
+
 /// قرار منع الإغلاق — دالة خالصة ليُختبَر ما لا تشغّله أي حزمة فحص.
 ///
 /// `ready`: سجّلت الواجهة مستمعها · `latch_taken`: المزلاج مستهلَك
@@ -540,18 +566,17 @@ pub fn run() {
                             .root
                             .as_os_str()
                             .is_empty();
-                    // **المنع أولًا، ثم البثّ مرة واحدة.**
-                    //
-                    // كان المنع داخل شرط المزلاج، فنقرةٌ ثانية على زرّ
-                    // الإغلاق بينما الأولى تنتظر القرص تجد المزلاج
-                    // مأخوذًا — فلا تُمنع أصلًا، وتُهدم النافذة بلا
-                    // حفظ على النص نفسه الذي مُنع فقده قبل لحظة.
-                    // المنع لا يُشترط بالمزلاج؛ البثّ وحده يُشترط به.
-                    if ready {
+                    // **القرار في `close_request_plan` لا هنا** — هذا
+                    // الذراع تنفيذٌ خالص. والمزلاج يُستهلك عند الجاهزية
+                    // وحدها: `&&` يقصر الدائرة، فطلبٌ قبل جاهزية
+                    // الواجهة لا يحرقه.
+                    let first = ready && !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst);
+                    let plan = close_request_plan(ready, first);
+                    if plan.prevent {
                         api.prevent_close();
-                        if !CLOSING.swap(true, std::sync::atomic::Ordering::SeqCst) {
-                            let _ = window.emit("luma://flush-and-close", ());
-                        }
+                    }
+                    if plan.emit {
+                        let _ = window.emit("luma://flush-and-close", ());
                     }
                 }
                 WindowEvent::Focused(false) => {
@@ -595,7 +620,54 @@ pub fn run() {
 
 #[cfg(test)]
 mod close_guards {
-    use super::should_defer_close;
+    use super::{close_request_plan, should_defer_close};
+
+    /// **المنع لا يُشترط بالمزلاج؛ البثّ وحده يُشترط به** — ADR ٠٠١٨.
+    ///
+    /// وهذا التأكيد الثاني هو القاعدة كلها: نقرةٌ ثانية على زرّ
+    /// الإغلاق تجد المزلاج مأخوذًا، ومع ذلك **تُمنع**. نقلُ المنع
+    /// داخل شرط المزلاج يُسقطها.
+    #[test]
+    fn a_second_close_click_is_still_prevented() {
+        let first = close_request_plan(true, true);
+        assert!(first.prevent, "أول طلبٍ لم يُمنع");
+        assert!(first.emit, "أول طلبٍ لم يُخطر الواجهة");
+
+        let second = close_request_plan(true, false);
+        assert!(
+            second.prevent,
+            "نقرةٌ ثانية لم تُمنع — تُهدم النافذة بلا حفظ على نصٍّ مُنع فقده قبل لحظة"
+        );
+        assert!(!second.emit, "البثّ تكرّر — والمزلاج وُضع ليمنع ذلك");
+    }
+
+    /// ولا يُمنع شيء قبل أن يوجد من يستقبل الإخطار.
+    #[test]
+    fn nothing_is_prevented_before_the_ui_is_ready() {
+        let plan = close_request_plan(false, true);
+        assert!(!plan.prevent);
+        assert!(!plan.emit);
+    }
+
+    /// **`close_declined` يفتح المزلاجين معًا.**
+    ///
+    /// بدونه: أول محاولة تُمنع وتُبثّ، والواجهة ترفض الهدم لأن النص لم
+    /// يصل القرص، ثم **المحاولة الثانية تمرّ بلا حفظ** لأن المزلاج بقي
+    /// مغلقًا — فيُغلق التطبيق على نصّ ضائع (بندُ ب/١٨).
+    #[test]
+    fn declining_a_close_reopens_both_latches() {
+        use std::sync::atomic::Ordering::SeqCst;
+        super::CLOSING.store(true, SeqCst);
+        super::EXITING.store(true, SeqCst);
+
+        super::close_declined();
+
+        assert!(!super::CLOSING.load(SeqCst), "مزلاج النافذة بقي مغلقًا");
+        assert!(
+            !super::EXITING.load(SeqCst),
+            "مزلاج ⌘Q بقي مغلقًا — والمحاولة التالية تمرّ بلا حفظ"
+        );
+    }
 
     /// المزلاج لا يُحرق قبل أن يوجد من يستقبل — العطل الذي وقع.
     #[test]

@@ -8,35 +8,24 @@ use std::path::PathBuf;
 use serde::{Deserialize, Serialize};
 use tauri::State;
 
-use crate::storage::document::{DocumentStore, StoreError, TRASH_RETENTION_MS};
+use crate::storage::document::{DocumentStore, StoreError};
 use crate::storage::model::{
     Block, Document, DocumentSummary, Revision, RevisionSource, RevisionSummary, TrashSummary,
 };
 use crate::storage::prefs::PreferencesStore;
 use crate::storage::revision::{now_ms, RevisionStore};
 
+/// **لا قفلَ هنا.** كان `trash_lock` حقلًا في هذا النوع وكل أمرِ سلّة
+/// يأخذه بنفسه — عقدٌ يُنسى، ولم يحرسه إلا اختبارٌ يأخذ القفل بيده
+/// (بندُ ب/١). صار القفل داخل `DocumentStore` نفسه، فأخذُه جزءٌ من
+/// العملية لا سطرٌ يُتذكَّر عند كل مُستدعٍ جديد.
 pub struct Storage {
     pub root: PathBuf,
-    /// يحرس عمليات السلّة (`trash`/`restore`/`purge_trashed` وما
-    /// يستدعيها) من التداخل على `Trash/<id>` نفسه.
-    ///
-    /// **اكتُشفت الحاجة إليه بمراجعة خصومية** (ADR ٠٠١٩، ٢٦ أغسطس
-    /// ٢٠٢٦)، لا نظريًا: أوامر Tauri المتزامنة هنا تُنفَّذ على خيوط
-    /// مستقلة بلا قفل، فاستعادةٌ وإفراغٌ (أو استعادتان لمعرّف واحد)
-    /// متزامنتان كانتا تتقاطعان فعليًا على `Trash/<id>` — و`remove_dir_all`
-    /// ليست ذرّية، تُفكّك ملفات الدليل واحدًا واحدًا، فـ`fs::rename`
-    /// يمكن أن يلتقط دليلًا **نصف مُفرَّغ في تلك اللحظة بالذات** وينجح
-    /// ظاهريًا، فيُبلَّغ النقل بنجاح وقد فقد سجله فعلًا بصمت — أُثبت
-    /// تجريبيًا: ١٠٠٪ من محاولات السباق أعادت `Ok` وصفر لقطة نجت.
-    trash_lock: std::sync::Mutex<()>,
 }
 
 impl Storage {
     pub fn new(root: PathBuf) -> Self {
-        Self {
-            root,
-            trash_lock: std::sync::Mutex::new(()),
-        }
+        Self { root }
     }
 
     pub fn docs(&self) -> DocumentStore {
@@ -47,13 +36,6 @@ impl Storage {
     }
     pub fn revisions(&self, doc_id: &str) -> RevisionStore {
         RevisionStore::new(self.docs().revisions_dir(doc_id))
-    }
-
-    /// يحصل على قفل السلّة. **لا يتجمّد على قفل مسموم**: عطبٌ برمزٍ
-    /// آخر أثناء حمله لا يجوز أن يقفل السلّة إلى الأبد — استرجاع
-    /// المحتوى الداخلي ومتابعة العمل أهون من تعطّل كل عملية سلّة تالية.
-    fn trash_guard(&self) -> std::sync::MutexGuard<'_, ()> {
-        self.trash_lock.lock().unwrap_or_else(|e| e.into_inner())
     }
 }
 
@@ -88,6 +70,15 @@ pub fn save_document(
     storage: State<'_, Storage>,
     payload: SavePayload,
 ) -> Result<SaveResult, String> {
+    save_document_inner(&storage, payload)
+}
+
+/// جسد `save_document` — **مفصولٌ عن `State` كي يُختبر** (بندُ ب/٧).
+///
+/// القاعدة الحرجة فيه («الفراغ لا يُكتب فوق تالف») كان يحرسها تأكيدٌ
+/// على نصّ المصدر — والدفاع الوحيد في المشروع كله عن ملفٍ لا نعرف ما
+/// فيه. هنا يُقاس سلوكًا: بايتات الملف التالف قبل النداء وبعده.
+pub fn save_document_inner(storage: &Storage, payload: SavePayload) -> Result<SaveResult, String> {
     let docs = storage.docs();
     let now = now_ms();
 
@@ -214,8 +205,19 @@ pub fn list_documents(storage: State<'_, Storage>) -> Result<LibraryListing, Str
 /// استقرار الكتابة يمحو ما لم يكن فارغًا — الترتيب في `session.ts`.
 #[tauri::command]
 pub fn delete_document(storage: State<'_, Storage>, id: String) -> Result<(), String> {
+    delete_document_inner(&storage, &id)
+}
+
+/// جسد `delete_document` — **مفصولٌ عن `State` كي يُختبر**.
+///
+/// أمرُ Tauri يحتاج `State<'_, Storage>` ولا يُبنى في اختبار وحدة،
+/// فكان الفرعُ محروسًا بأربع مطابقاتِ حضورِ نصٍّ على المصدر: تبقى
+/// خضراء لو قُلب الشرط، بل إن إحداها كانت تُشبعها كلمةٌ في تعليق
+/// (بندُ ب/٢). و`Storage::new(root)` يُبنى في اختبار، فهذه الدالّة
+/// تُنادى مباشرةً ويُقاس **أيُّ فرعٍ يذهب إلى أيّ**.
+pub fn delete_document_inner(storage: &Storage, id: &str) -> Result<(), String> {
     let docs = storage.docs();
-    let doc = match docs.load(&id) {
+    let doc = match docs.load(id) {
         Ok(d) => d,
         Err(StoreError::NotFound) => return Ok(()),
         Err(e) => return Err(to_message(e)),
@@ -224,24 +226,19 @@ pub fn delete_document(storage: State<'_, Storage>, id: String) -> Result<(), St
     // اللقطة التالفة من العرض، وهذا يسأل «أهناك ما يُفقد لو مُحي
     // المستند فورًا؟». تلفٌ في اللقطة الوحيدة لا يعني غيابها — الشرح
     // الكامل عند `RevisionStore::has_any_snapshot`.
-    let has_history = storage.revisions(&id).has_any_snapshot();
+    let has_history = storage.revisions(id).has_any_snapshot();
 
     if doc.is_empty() && !has_history {
-        docs.purge(&id).map_err(to_message)
+        docs.purge(id).map_err(to_message)
     } else {
-        // **مقفَل** — الشرح الكامل عند `Storage::trash_lock` أعلاه.
-        let _guard = storage.trash_guard();
-        docs.trash(&id).map_err(to_message)
+        // القفل داخل `trash()` نفسها — لا سطرَ يُتذكَّر هنا.
+        docs.trash(id).map_err(to_message)
     }
 }
 
 /// يعيد مستندًا من السلّة بسجله كاملًا. ADR ٠٠١٩.
 #[tauri::command]
 pub fn restore_document(storage: State<'_, Storage>, id: String) -> Result<(), String> {
-    // **مقفَل** — الشرح الكامل عند `Storage::trash_lock` أعلاه: بلا هذا
-    // القفل، استعادةٌ متزامنة مع إفراغ أو استعادةٍ أخرى لنفس المعرّف
-    // كانت تتقاطع فعليًا على `Trash/<id>` — أثبتته مراجعة خصومية.
-    let _guard = storage.trash_guard();
     storage.docs().restore(&id).map_err(to_message)
 }
 
@@ -256,23 +253,19 @@ pub struct TrashListing {
 /// محتويات السلّة — **بعد كسحٍ كسول** يمحو ما تجاوز مهلته. ADR ٠٠١٩:
 /// «الفحص كسول: عند إطلاق التطبيق، وعند فتح لوحة السلّة». الإطلاق في
 /// `lib.rs`، وفتح اللوحة هنا.
+///
+/// **والكسح داخل `list_trash()` نفسها** لا سطرًا هنا: كان نداءً
+/// منفصلًا يسبقها، فحذفُه يمرّ خضراء ويترك صفوفًا تَعِد بـ«تختفي خلال…»
+/// عن مستندات لن تختفي — بندُ أ/٨.
 #[tauri::command]
 pub fn list_trash(storage: State<'_, Storage>) -> Result<TrashListing, String> {
-    let docs = storage.docs();
-    {
-        // **مقفَل** — الشرح الكامل عند `Storage::trash_lock` أعلاه.
-        let _guard = storage.trash_guard();
-        let _ = docs.sweep_expired(now_ms(), TRASH_RETENTION_MS);
-    }
-    let (documents, damaged) = docs.list_trash().map_err(to_message)?;
+    let (documents, damaged) = storage.docs().list_trash().map_err(to_message)?;
     Ok(TrashListing { documents, damaged })
 }
 
 /// يُفرغ السلّة كاملة فورًا — زرّ الإفراغ اليدوي. **يُبلّغ:** عدد ما مُحي.
 #[tauri::command]
 pub fn empty_trash(storage: State<'_, Storage>) -> Result<usize, String> {
-    // **مقفَل** — الشرح الكامل عند `Storage::trash_lock` أعلاه.
-    let _guard = storage.trash_guard();
     storage.docs().empty_trash().map_err(to_message)
 }
 
@@ -292,6 +285,12 @@ const SELFTEST_PREFIX: &str = "selftest-";
 /// **تكنس `Trash/` أيضًا** — احتياطًا لا لحاجة اليوم: الفحص الذاتي لا
 /// يستدعي `delete_document` حاليًا (الشرح في `selftest.ts`)، لكن أداة
 /// الكنس لا يصحّ أن تفترض ذلك يبقى صحيحًا إلى الأبد.
+///
+/// **واستثناءٌ واحد على «لا يحذف إلا `selftest-`»:** قراءةُ السلّة
+/// صارت تكسح ما تجاوز مهلته بنفسها (بندُ أ/٨)، فنداءُ `list_trash()`
+/// هنا قد يمحو عنصرًا **ليس** من الفحص إن كان قد تجاوز ثلاثين يومًا.
+/// وذلك محوٌ كان سيقع عند أول إقلاع تالٍ على أي حال، فالفارق توقيتُه
+/// لا وقوعه — لكنه يُقال هنا كي لا يبقى العقد أعلاه أوسع من الواقع.
 #[tauri::command]
 pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
     let docs = storage.docs();
@@ -308,9 +307,6 @@ pub fn cleanup_selftest(storage: State<'_, Storage>) -> Result<usize, String> {
             removed += 1;
         }
     }
-    // **مقفَل** — الشرح الكامل عند `Storage::trash_lock` أعلاه: كنسٌ
-    // متزامن مع استعادة أو إفراغ حقيقي يتقاطع على `Trash/` نفسها.
-    let _guard = storage.trash_guard();
     for id in trashed
         .into_iter()
         .map(|d| d.id)
@@ -515,6 +511,8 @@ pub async fn pick_and_import_font(
 
 #[cfg(test)]
 mod guards {
+    use super::{delete_document_inner, save_document_inner, SavePayload, Storage};
+
     /// **حارس تجمّد.**
     ///
     /// أمرٌ متزامن يعمل على الخيط الرئيسي، فاستدعاء `blocking_*` فيه
@@ -554,7 +552,7 @@ mod guards {
     /// **حارس مراجعة خصومية على ADR ٠٠١٩: القفل يمنع التقاطع فعليًا
     /// لا نظريًا.**
     ///
-    /// بلا `trash_guard()` كانت استعادةٌ وإفراغٌ متزامنان على المعرّف
+    /// بلا القفل كانت استعادةٌ وإفراغٌ متزامنان على المعرّف
     /// نفسه يتقاطعان على `Trash/<id>` — `remove_dir_all` ليست ذرّية
     /// (تُفكّك ملفات الدليل واحدًا واحدًا)، و`fs::rename` قد يلتقط
     /// دليلًا نصف مُفرَّغ في تلك اللحظة بالذات فينجح ظاهريًا وقد فقد
@@ -571,6 +569,8 @@ mod guards {
         let root = std::env::temp_dir().join(format!("luma-trashlock-{}", std::process::id()));
         let _ = std::fs::remove_dir_all(&root);
         let storage = Arc::new(super::Storage::new(root.clone()));
+        let mut restored = 0;
+        let mut purged = 0;
 
         for trial in 0..20 {
             let id = format!("race-{trial}");
@@ -601,16 +601,29 @@ mod guards {
 
             let barrier = Arc::new(Barrier::new(2));
             let mut handles = Vec::new();
-            for restoring in [true, false] {
+            // **ترتيب الإطلاق يتناوب.** الخيط الأخير الواصل إلى الحاجز
+            // يمضي فورًا بينما يُوقَظ الآخر، فترتيبٌ ثابت يجعل الفائز
+            // ثابتًا: قِيس فعلًا فكانت الاستعادة تخسر ٢٠ من ٢٠ — ولا
+            // تأكيد يقع في المحاولات كلها.
+            let order = if trial % 2 == 0 {
+                [true, false]
+            } else {
+                [false, true]
+            };
+            for restoring in order {
                 let storage = Arc::clone(&storage);
                 let barrier = Arc::clone(&barrier);
                 let id = id.clone();
                 handles.push(std::thread::spawn(move || {
                     barrier.wait();
-                    // القفل هنا هو موضع الإصلاح — الاختبار نفسه هو
-                    // الحارس: أزل `trash_guard()` من `restore_document`
-                    // و`empty_trash` ليسقط هذا الاختبار على العطل القديم.
-                    let _guard = storage.trash_guard();
+                    // **ولا قفلَ هنا — وهذا هو بيت القصيد.**
+                    //
+                    // كان هذا السطر `let _guard = storage.trash_guard();`
+                    // فيأخذ الاختبارُ القفلَ بيده داخل خيطه: يقيس أن
+                    // `Mutex` يعمل، لا أن العمليات تأخذه. الخيطان هنا
+                    // يناديان `DocumentStore` عاريًا كما يفعل أيُّ مسار
+                    // جديد — فإن لم يكن القفل داخل العملية نفسها سقط
+                    // هذا الاختبار. بندُ ب/١.
                     let docs = storage.docs();
                     if restoring {
                         let _ = docs.restore(&id);
@@ -630,51 +643,123 @@ mod guards {
                     count, 30,
                     "المحاولة {trial}: استعادة نجت لكن اللقطات نصف مفقودة — تقاطعٌ فعلي على Trash/"
                 );
+                restored += 1;
+            } else {
+                // **وفوزُ المحو لا يجوز أن يترك نصف حالة**: لا بقايا
+                // في السلّة ولا مجلدًا مفكَّكًا ينتظر من يلتقطه.
+                assert!(
+                    !root.join("Trash").join(&id).exists(),
+                    "المحاولة {trial}: مُحي المستند وبقيت بقاياه في السلّة"
+                );
+                purged += 1;
             }
         }
+
+        // **محاولةٌ فاز فيها المحو لا تؤكّد شيئًا** — والفوز يعتمد على
+        // جدولة الخيوط، فقد تمرّ العشرون كلها بلا تأكيد واحد ويبقى
+        // الاختبار أخضر على عطله. كشفته مراجعة خصومية على S4 وقاسته:
+        // ٨٥٪ إلى ١٠٠٪ من المحاولات خاوية. فيُشترط أن يكون بعضها قد
+        // مرّ بالفرع الذي يقيس فعلًا.
+        assert!(
+            restored > 0,
+            "لم تفز الاستعادة في أيّ محاولة — لم يُقَس شيء، والخُضرة بلا معنى"
+        );
+        assert!(purged > 0, "لم يفز المحو في أيّ محاولة — لم يقع سباقٌ أصلًا");
         let _ = std::fs::remove_dir_all(&root);
     }
 
-    /// **حارس ADR ٠٠١٩: الحذف المعتاد سلّة لا محو.**
+    /// **ADR ٠٠١٩: الحذف المعتاد سلّة لا محو — مقيسًا لا مطابَقًا.**
     ///
-    /// `delete_document` يستدعي `trash()` في الحالة العامة و`purge()`
-    /// في حالة واحدة فقط — مستندٌ لا كلمة فيه ولا لقطة، فحصًا يركّب
-    /// مخزنَي المستند والسجل معًا (`has_history`). حارسٌ سلوكي
-    /// (اختبارات `document.rs`) يقيس `trash`/`purge` أنفسهما؛ وهذا
-    /// يمنع أن يعود موضع الاستدعاء هنا إلى محوٍ غير مشروط كما كان قبل
-    /// السلّة — عطلٌ لا تكشفه اختبارات `document.rs` مهما دقّت، لأنها
-    /// تقيس الدالتين لا مَن يستدعيهما.
+    /// كان هذا الحارس أربع مطابقاتِ حضورِ نصٍّ على المصدر
+    /// (`body.contains("docs.trash(&id)")` وأخواتها): لا واحدةَ منها
+    /// تربط شرطًا بالفرع الذي يذهب إليه، فقلبُ الفرعين يُبقيها خضراء
+    /// والسلاسل الأربع في مكانها. بل إن مطابقة `has_any_snapshot`
+    /// كانت **خاوية**: الاختبار لا يصفّي أسطر التعليق، والاسم يرد في
+    /// تعليقٍ فوق الشرط — بندُ ب/٢ في `docs/audit/AUDIT-2026-08-27.md`.
+    ///
+    /// وبانفصال الجسد عن `State` (`delete_document_inner`) صار الفرع
+    /// يُقاس بأثره على القرص: **أين انتهى المستند فعلًا**.
     #[test]
-    fn delete_document_prefers_trash_over_purge() {
-        let src = include_str!("commands.rs");
-        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
-        let body = code
-            .split("pub fn delete_document")
-            .nth(1)
-            .expect("لم يُعثر على delete_document")
-            .split("#[tauri::command]")
-            .next()
-            .unwrap_or("");
+    fn delete_document_sends_to_trash_except_the_empty_and_historyless() {
+        use crate::storage::model::{Block, Document, RevisionSource, SCHEMA_VERSION};
+
+        fn doc(id: &str, text: &str) -> Document {
+            Document {
+                schema_version: SCHEMA_VERSION,
+                id: id.into(),
+                title: None,
+                blocks: vec![Block {
+                    id: "b1".into(),
+                    role: "body".into(),
+                    text: text.into(),
+                    marks: vec![],
+                }],
+                created_at: 0,
+                updated_at: 0,
+                last_opened_at: 0,
+                deleted_at: None,
+            }
+        }
+
+        let root =
+            std::env::temp_dir().join(format!("luma-del-{}-{:?}", std::process::id(), "branch"));
+        let _ = std::fs::remove_dir_all(&root);
+        let storage = Storage::new(root.clone());
+        let docs = storage.docs();
+
+        // ① فيه نصّ ⇒ السلّة
+        docs.save(&doc("has-text", "نصٌّ حقيقي")).unwrap();
+        delete_document_inner(&storage, "has-text").unwrap();
+        assert!(!docs.exists("has-text"), "بقي في المكتبة");
         assert!(
-            body.contains("docs.trash(&id)"),
-            "delete_document لم يعد يستدعي trash()"
+            docs.list_trash()
+                .unwrap()
+                .0
+                .iter()
+                .any(|d| d.id == "has-text"),
+            "مستندٌ فيه نصّ لم يصل السلّة — محوٌ بلا تدارك"
         );
+
+        // ② فارغ **وله لقطة** ⇒ السلّة كذلك: التدارك يخسر شيئًا
+        docs.save(&doc("empty-with-history", "")).unwrap();
+        storage
+            .revisions("empty-with-history")
+            .create(
+                &doc("empty-with-history", "كان فيه نصّ"),
+                RevisionSource::Automatic,
+            )
+            .unwrap();
+        delete_document_inner(&storage, "empty-with-history").unwrap();
         assert!(
-            body.contains("docs.purge(&id)"),
-            "delete_document فقد مسار المحو المباشر للفارغ بلا سجل"
+            docs.list_trash()
+                .unwrap()
+                .0
+                .iter()
+                .any(|d| d.id == "empty-with-history"),
+            "مستندٌ أُفرغ نصّه وله سجل مُحي مباشرة — ضاع سجله بلا تدارك"
         );
+
+        // ③ فارغ **وبلا لقطة** ⇒ محوٌ مباشر: لا شيء يخسره التدارك
+        docs.save(&doc("empty-bare", "")).unwrap();
+        delete_document_inner(&storage, "empty-bare").unwrap();
+        assert!(!docs.exists("empty-bare"), "بقي في المكتبة");
         assert!(
-            body.contains("has_history"),
-            "شرط الفراغ لا يفحص السجل — مستندٌ له لقطات قد يُمحى مباشرة"
+            !docs
+                .list_trash()
+                .unwrap()
+                .0
+                .iter()
+                .any(|d| d.id == "empty-bare"),
+            "فارغٌ بلا سجل شغل صفًّا في السلّة لا يُستعاد منه شيء"
         );
-        // **`has_any_snapshot` لا `list().is_empty()`** — عمدًا.
-        // `list()` تُسقط اللقطة التالفة، فحسمُ الفراغ على طولها كان
-        // يمحو مستندًا له سجل فعلي (تالف) بلا سلّة — عطلٌ حقيقي
-        // كشفته مراجعة خصومية على ADR ٠٠١٩ (٢٦ أغسطس ٢٠٢٦).
+
+        // ④ **الغياب التام ليس خطأً** — نجاحٌ صامت
         assert!(
-            body.contains("has_any_snapshot"),
-            "شرط السجل يستعمل list().is_empty() — تلفٌ في لقطة يجعلها تبدو غائبة فيُمحى مستندٌ له سجل فعلي"
+            delete_document_inner(&storage, "never-existed").is_ok(),
+            "معرّفٌ لا وجود له أعاد خطأ — رسالةٌ زائفة عند كل مغادرة"
         );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 
     /// **حارس §٩: القرار لا يُلتفّ عليه.**
@@ -710,40 +795,88 @@ mod guards {
         );
     }
 
-    /// **حارس §١٤: لا يُستبدل التالف بمستند فارغ.**
+    /// **§١٤: لا يُستبدل التالف بمستند فارغ — مقيسًا بالبايتات.**
     ///
-    /// حارسُ الفراغ في `save_document` كان يسأل `exists()` — وجودَ
-    /// مسار — فيمرّ على ملفٍّ تالف مسارُه قائم ومحتواه مجهول، فيُكتب
-    /// الفراغ فوقه. والفرق بين السؤالين لا يراه المترجم: كلاهما يعيد
-    /// حكمًا، وأحدهما وحده يعرف أن هناك مستندًا.
+    /// كان الحارس مطابقتَي نصٍّ على المصدر
+    /// (`!body.contains("exists(")` و`body.contains("is_empty() && …")`)
+    /// — والدفاعَ **الوحيد** في المشروع كله عن ملفٍ لا نعرف ما فيه،
+    /// إذ `DocumentStore::save` يكتب بلا شرط. وصياغةٌ أخرى للشرط
+    /// نفسه تُسقط الحارس وهو سليم، وكتابةٌ مضافةٌ داخل الفرع تمرّ وهو
+    /// أخضر — بندُ ب/٧.
     ///
-    /// والقاعدة تُحرَس على المصدر لأن الحكم يعيش داخل أمرٍ يحتاج
-    /// `State<Storage>` فلا يُبنى في اختبار وحدة. والفرق نفسه محروسٌ
-    /// سلوكيًّا في `storage::document` — انظر
-    /// `a_corrupt_file_exists_on_the_path_but_is_not_a_readable_document`.
+    /// وبانفصال الجسد عن `State` يُقاس ما يهمّ فعلًا: **بايتات الملف
+    /// التالف قبل النداء وبعده**.
     #[test]
-    fn the_empty_guard_asks_for_a_readable_document_not_a_path() {
-        let src = include_str!("commands.rs");
-        let code = src.split("#[cfg(test)]").next().unwrap_or(src);
-        let code: String = code
-            .lines()
-            .filter(|l| !l.trim_start().starts_with("//"))
-            .collect::<Vec<_>>()
-            .join("\n");
+    fn an_empty_payload_never_overwrites_a_corrupt_file() {
+        let root = std::env::temp_dir().join(format!("luma-save-{}", std::process::id()));
+        let _ = std::fs::remove_dir_all(&root);
+        let storage = Storage::new(root.clone());
+        let docs = storage.docs();
 
-        let save = code
-            .split("pub fn save_document")
-            .nth(1)
-            .expect("لم يُعثر على save_document");
-        let body = save.split("#[tauri::command]").next().unwrap_or(save);
+        // ملفٌّ في المسار، غيرُ قابل للقراءة كمستند
+        let path = docs.path_for("corrupt");
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        let original = "{ ليس هذا مستندًا صالحًا ".as_bytes().to_vec();
+        std::fs::write(&path, &original).unwrap();
 
-        assert!(
-            !body.contains("exists("),
-            "حارس الفراغ يسأل عن وجود المسار — فيُكتب الفراغ فوق مستند تالف (§١٤)"
+        let result = save_document_inner(
+            &storage,
+            SavePayload {
+                id: "corrupt".into(),
+                title: None,
+                blocks: vec![],
+                created_at: None,
+            },
         );
-        assert!(
-            body.contains("is_empty() && existing.is_err()"),
-            "حارس الفراغ لم يعد يسأل عن مستندٍ يُقرأ"
+
+        assert!(result.is_ok(), "الحفظ الفارغ أعاد خطأ بدل أن يمضي صامتًا");
+        assert_eq!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "الفراغ كُتب فوق ملفٍّ تالف — محوٌ لما لا نعرف ما هو (§١٤)"
         );
+
+        // **ومحتوًى حقيقي يُكتب فوق التالف عمدًا**: المستند مفتوحٌ في
+        // المحرر فنسخته في الذاكرة هي السليمة، وحجبُ الكتابة يُبقي عمل
+        // الكاتب بلا قرص. المنعُ للفراغ وحده لأنه محوٌ لا إصلاح.
+        save_document_inner(
+            &storage,
+            SavePayload {
+                id: "corrupt".into(),
+                title: None,
+                blocks: vec![crate::storage::model::Block {
+                    id: "b1".into(),
+                    role: "body".into(),
+                    text: "نصٌّ حيّ".into(),
+                    marks: vec![],
+                }],
+                created_at: None,
+            },
+        )
+        .unwrap();
+        assert_ne!(
+            std::fs::read(&path).unwrap(),
+            original,
+            "محتوًى حقيقي لم يُكتب فوق التالف — عمل الكاتب بلا قرص"
+        );
+
+        // وملفٌّ **غائب تمامًا** مع حمولة فارغة لا يُنشأ أصلًا
+        let empty_id = "never-written";
+        save_document_inner(
+            &storage,
+            SavePayload {
+                id: empty_id.into(),
+                title: None,
+                blocks: vec![],
+                created_at: None,
+            },
+        )
+        .unwrap();
+        assert!(
+            !docs.path_for(empty_id).exists(),
+            "مستندٌ بلا محتوى كُتب على القرص — ضجيجٌ في المكتبة (§٢٠ مسألة ٣)"
+        );
+
+        let _ = std::fs::remove_dir_all(&root);
     }
 }

@@ -333,4 +333,4 @@
 `sweep_expired_purges_only_what_passed_retention` و
 `empty_trash_purges_everything_regardless_of_age` و
 `list_trash_skips_damaged_without_failing`، و`commands.rs` —
-`delete_document_prefers_trash_over_purge`.
+`delete_document_sends_to_trash_except_the_empty_and_historyless` — وهو اختبارٌ سلوكي يقيس أين انتهى المستند فعلًا، بعد أن كان مطابقةَ نصٍّ على المصدر.

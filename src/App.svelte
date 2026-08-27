@@ -656,7 +656,8 @@
    * الأزرار المعطَّلة تمنع الكاتب، لكن لا شيء كان يمنع نداءً برمجيًا
    * ثانيًا لعنصر يُستعاد فعلًا الآن أو أثناء إفراغ السلة — والاثنان
    * يتقاطعان على `Trash/<id>` نفسه في النواة. الفحص هنا دفاعٌ في
-   * العمق، لا بديل عن القفل الحقيقي في `commands.rs::trash_guard`.
+   * العمق، لا بديل عن القفل الحقيقي — وموضعه `TRASH_LOCK` داخل
+   * `storage/document.rs`، تأخذه كل عملية سلّة بنفسها.
    */
   async function restoreFromTrash(id: string) {
     if (!invoke || trashBusyIds.has(id) || emptyingTrash) return;
