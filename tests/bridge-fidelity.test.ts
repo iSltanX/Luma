@@ -54,6 +54,32 @@ describe("الجسر المقلَّد يطابق النواة التي يقلّ�
     expect(MOCK_TRASH_RETENTION_MS).toBe(TRASH_RETENTION_MS);
   });
 
+  /**
+   * **النسختان الرابعة والخامسة نصٌّ لا رقم** — بندُ ب/١٢. لا سبيل
+   * إلى مقارنة عدديّة مع `docs/settings.ts` وLuma.md؛ التحقّق الوحيد
+   * الممكن هو أن ما يقرؤه الكاتب («٣٠ يومًا») ما زال يطابق عدد الأيام
+   * الحقيقي المشتقّ من الثابت — لا رقمًا مطبوعًا بمعزل عنه.
+   */
+  it("ونصّ «٣٠ يومًا» في شاشة الإعدادات وLuma.md يطابق الثابت فعليًّا", () => {
+    const days = MOCK_TRASH_RETENTION_MS / (24 * 60 * 60 * 1000);
+    expect(days, "الثابت لم يعد يساوي عددًا صحيحًا من الأيام").toBe(30);
+
+    const arabicDigits = "٠١٢٣٤٥٦٧٨٩";
+    const daysArabic = String(days)
+      .split("")
+      .map((d) => arabicDigits[Number(d)])
+      .join("");
+    const phrase = `${daysArabic} يومًا`;
+
+    const settings = readFileSync(join(ROOT, "src/lib/settings.ts"), "utf8");
+    expect(settings, `settings.ts لا يعلن «${phrase}»`).toContain(phrase);
+
+    const lumaMd = readFileSync(join(ROOT, "Luma.md"), "utf8");
+    expect(lumaMd, `Luma.md لا يعلن «${phrase}» في وصف السلّة`).toContain(
+      `إفراغ تلقائي بعد ${phrase}`,
+    );
+  });
+
   it("عتبة اللقطة تطابق `MIN_CHANGE_CHARS` في Rust", () => {
     const fromRust = rustConst(rust("storage/revision.rs"), "MIN_CHANGE_CHARS");
     expect(fromRust, "ثمانون حرفًا — ADR ٠٠٠٦").toBe(80);

@@ -1,7 +1,33 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 import { Autosave, AUTOSAVE_TIMING, type SaveState } from "../src/lib/autosave";
 
 const { DEBOUNCE_MS, MAX_INTERVAL_MS } = AUTOSAVE_TIMING;
+
+/**
+ * **الوثيقة تُعلن القيمة، والكود يُقارَن بها حرفيًا** — بندُ ب/٨.
+ *
+ * كانت الحزمة تختبر «المؤقّت ينطلق عند ما تعلنه الوحدة نفسها» —
+ * تعريفٌ دائري لا يمسّ ٧٠٠ ولا ٥٠٠٠ بحرف واحد. ADR ٠٠٠٥ يسمّي
+ * الرقمين نصًّا، فيُقارَنان هنا حرفيًا — نمط `tests/budgets.test.ts`.
+ */
+describe("توقيت الحفظ التلقائي يطابق ADR ٠٠٠٥ حرفيًا", () => {
+  const adr = readFileSync(
+    join(process.cwd(), "docs/decisions/0005-autosave-timing.md"),
+    "utf8",
+  );
+
+  it("مهلة السكون ٧٠٠ms كما في الجدول", () => {
+    expect(adr, "الوثيقة لا تعلن ٧٠٠ms").toContain("٧٠٠ms");
+    expect(DEBOUNCE_MS).toBe(700);
+  });
+
+  it("السقف الأقصى ٥ ثوانٍ كما في الجدول", () => {
+    expect(adr, "الوثيقة لا تعلن ٥ ثوانٍ").toContain("٥ ثوانٍ");
+    expect(MAX_INTERVAL_MS).toBe(5000);
+  });
+});
 
 function harness(write: (p: string) => Promise<void>) {
   const states: SaveState[] = [];

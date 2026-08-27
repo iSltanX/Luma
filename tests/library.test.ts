@@ -6,7 +6,13 @@
 
 import { describe, it, expect } from "vitest";
 import { filterDocuments, normalize, type DocumentCard } from "../src/lib/library";
-import { sinceLabel, wordDelta, words, arabicDigits } from "../src/lib/bidi";
+import {
+  sinceLabel,
+  wordDelta,
+  words,
+  arabicDigits,
+  untilTrashEmptyLabel,
+} from "../src/lib/bidi";
 
 function card(id: string, title: string, excerpt = ""): DocumentCard {
   return {
@@ -114,6 +120,48 @@ describe("صياغة الزمن — بالكلمات لا بالرموز", () =>
 
   it("المستقبل لا يعطي زمنًا سالبًا", () => {
     expect(sinceLabel(NOW + 10 * H, NOW)).toBe("الآن");
+  });
+
+  /**
+   * **الصيغة الثالثة** — بندُ ب/١٦: `untilTrashEmptyLabel` وُلدت مع
+   * ADR ٠٠١٩ تحت توثيقٍ يقول «القاعدة نفسها في `sinceLabel`»، وبقيت
+   * صفر مستوردين في الاختبارات — الادّعاء لم يُتحقّق منه قط. الحارس
+   * أعلاه يفحص `sinceLabel`/`wordDelta` وحدهما فلا يمسّها، ومستهلكها
+   * الوحيد (`TrashRow.svelte`) لا يصله أيّ harness (لا `[data-trash-row]`
+   * قبل جسر S3، وحزمة الجسر لا تختبر منطق الصياغة الخالص هذا).
+   */
+  it("لا رمز محايد في `untilTrashEmptyLabel` — الصيغة الثالثة", () => {
+    const offenders = /[:+\-/·]/;
+    const retention = 30 * D;
+    for (const deletedAgo of [0, 30 * M, H, 5 * H, D, 3 * D, 29 * D, 31 * D]) {
+      expect(untilTrashEmptyLabel(NOW - deletedAgo, retention, NOW)).not.toMatch(
+        offenders,
+      );
+    }
+  });
+
+  it("`untilTrashEmptyLabel` تصوغ كل مدًى بصياغته الصحيحة", () => {
+    const retention = 30 * D;
+    // انتهت المهلة فعلًا (كسحٌ لم يصل بعد) — لا مدّة سالبة
+    expect(untilTrashEmptyLabel(NOW - 31 * D, retention, NOW)).toBe("تختفي الآن");
+    // أقل من ساعة متبقية
+    expect(untilTrashEmptyLabel(NOW - retention + 30 * M, retention, NOW)).toBe(
+      "تختفي الآن",
+    );
+    // ساعات متبقية
+    expect(untilTrashEmptyLabel(NOW - retention + 5 * H, retention, NOW)).toBe(
+      "تختفي خلال ٥ ساعات",
+    );
+    // يومٌ واحد بالضبط
+    expect(untilTrashEmptyLabel(NOW - retention + D, retention, NOW)).toBe(
+      "تختفي غدًا",
+    );
+    // أيامٌ متعددة
+    expect(untilTrashEmptyLabel(NOW - retention + 3 * D, retention, NOW)).toBe(
+      "تختفي خلال ٣ أيام",
+    );
+    // اللحظة الأولى بعد الحذف — المهلة كاملة تقريبًا
+    expect(untilTrashEmptyLabel(NOW, retention, NOW)).toBe("تختفي خلال ٣٠ يومًا");
   });
 });
 

@@ -52,15 +52,48 @@ if (r.error) {
   console.error("سقط الفحص قبل أن يكتمل:", r.error);
   process.exit(1);
 }
+
+// **بندٌ اختفى من التقرير ليس بندًا ناجحًا** — بندُ ب/٩ (ج). كان
+// الحكم كلّه `checks.filter(c => !c.passed)`: بندٌ حُذف نداؤه من
+// selftest.ts لا يظهر في `r.checks` أصلًا، فلا يُعدّ فاشلًا ولا
+// يُرى — يخرج السكربت بصفر وقد سقط بند فعليًا. الميزانيات التسع
+// معرّفاتٌ ثابتة تُقرأ من مصدر budgets.ts نفسه، فلا تتكرّر هنا يدويًا.
+const fs = require("node:fs");
+const path = require("node:path");
+const budgetsSrc = fs.readFileSync(
+  path.join(__dirname, "..", "src", "dev", "budgets.ts"),
+  "utf8",
+);
+const expectedBudgetIds = [...budgetsSrc.matchAll(/id:\s*"(budget-[\w-]+)"/g)].map(
+  (m) => m[1],
+);
+if (expectedBudgetIds.length === 0) {
+  console.error("تعذّر استخراج معرّفات الميزانيات من budgets.ts — الفحص نفسه معطوب");
+  process.exit(1);
+}
+const presentIds = new Set(r.checks.map((c) => c.id));
+const vanished = expectedBudgetIds.filter((id) => !presentIds.has(id));
+
 const failed = r.checks.filter(c => !c.passed);
 for (const c of r.checks) {
   console.log((c.passed ? "  ✓ " : "  ✗ ") + c.name + " — " + c.detail);
 }
+if (vanished.length) {
+  console.log("");
+  for (const id of vanished) console.log("  ؟ " + id + " — لم يظهر في التقرير أصلًا");
+}
 console.log("");
 console.log("المرحلة " + r.phase + ": " + (r.checks.length - failed.length) + "/" + r.checks.length + " مرّ");
+let failing = false;
 if (failed.length) {
   console.error("سقط " + failed.length + " بندًا:");
   for (const c of failed) console.error("  ✗ " + c.id + " — " + c.detail);
-  process.exit(1);
+  failing = true;
 }
+if (vanished.length) {
+  console.error("اختفى " + vanished.length + " بند ميزانية من التقرير — لا نجاحٌ ولا فشل، غياب:");
+  for (const id of vanished) console.error("  ؟ " + id);
+  failing = true;
+}
+if (failing) process.exit(1);
 '

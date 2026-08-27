@@ -306,3 +306,51 @@ describe("تغيير التفضيل يصل جذر المستند فورًا", ()
     expect(written).toHaveLength(0);
   });
 });
+
+/**
+ * **كتابة الرجوع نفسها — لا انعكاسها البصري وحده** — بندُ ب/٢٦‑أ.
+ *
+ * سلسلة الرجوع (§٨ أعلاه) محروسة: خطٌّ غائب يُرسم بـAlmarai. غير
+ * المحروس هو `fallBackToBundled()` نفسها — تُستدعى مرّة واحدة في
+ * المنتج (`App.svelte:1053` حين يختفي الخطّ المختار من فهرس النظام)
+ * ولم يكن استدعاؤها الفعلي مقاسًا قط: هل تكتب `fontSource: "bundled"`
+ * فعلًا، أم تكتفي بتغيير الاسم فيبقى المصدر يدّعي مصدرًا لم يعد قائمًا؟
+ */
+describe("الرجوع إلى الخط المرفَق — `fallBackToBundled`", () => {
+  it("يضبط الاسم والمصدر معًا، ويكتب الاثنين", () => {
+    const { el } = fakeRoot();
+    const store = new PreferencesStore();
+    const written: Preferences[] = [];
+    store.hydrate(
+      { fontFamily: "Geeza Pro", fontSource: "system" },
+      el,
+      (v) => written.push(v),
+    );
+    expect(store.value.fontFamily).toBe("Geeza Pro");
+
+    store.fallBackToBundled();
+
+    expect(store.value.fontFamily, "الاسم لم يعد إلى الخط المرفَق").toBe("Almarai");
+    expect(
+      store.value.fontSource,
+      "المصدر بقي يدّعي «نظام» لخطٍّ صار Almarai فعليًا",
+    ).toBe("bundled");
+
+    store.flush();
+    expect(written, "لم تُكتب القيمتان على القرص").toHaveLength(1);
+    expect(written[0]!.fontFamily).toBe("Almarai");
+    expect(written[0]!.fontSource).toBe("bundled");
+  });
+
+  it("لا تفعل شيئًا حين يكون الخط المرفَق مختارًا أصلًا", () => {
+    const { el } = fakeRoot();
+    const store = new PreferencesStore();
+    const written: Preferences[] = [];
+    store.hydrate({}, el, (v) => written.push(v));
+
+    store.fallBackToBundled();
+    store.flush();
+    // `set` تتجاهل قيمةً لا تتغيّر (`قيمة لا تتغيّر لا تُطبَّق` أعلاه)
+    expect(written).toHaveLength(0);
+  });
+});

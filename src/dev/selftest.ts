@@ -1486,14 +1486,28 @@ export async function runSelfTest(
   // ── ٩ · تنظيف ما خلّفه الفحص ───────────────────────────────
   // الفحص يكتب مستندات حقيقية ليختبر المسار الحقيقي، فيجب ألّا
   // يتركها: مكتبة المستخدم ليست مكان ضجيج أداة.
+  //
+  // **`removed` يُقارَن لا يُطبَع وحسب** — بندُ ب/١٠. كان الحكم
+  // `true` حرفيًّا: `removed === 0` يمرّ كما يمرّ `removed === 505`،
+  // فأداةٌ فقدت بادئتها فجأة وتركت مستنداتٍ حقيقية لا تُبلّغ بشيء.
+  // العدد المتوقَّع يُقاس **قبل** الكنس مباشرة — من المكتبة والسلّة
+  // معًا، فمكتبة المطوّر الحقيقية لا تُحسب (بادئتها غير `selftest-`).
   if (invoke) {
     try {
+      const countSelftestPrefixed = async (cmd: string): Promise<number> => {
+        const listing = await invoke!<{ documents: { id: string }[] }>(cmd);
+        return listing.documents.filter((d) => d.id.startsWith("selftest-")).length;
+      };
+      const expected =
+        (await countSelftestPrefixed("list_documents")) +
+        (await countSelftestPrefixed("list_trash"));
+
       const removed = await invoke<number>("cleanup_selftest");
       add(
         "selftest-cleanup",
         "الفحص لا يترك أثرًا في مكتبة المستخدم",
-        true,
-        `أُزيل ${removed} مستند فحص`,
+        removed >= expected,
+        `أُزيل ${removed} مستند فحص — كان متوقَّعًا ${expected} على الأقل (مكتبة+سلّة)`,
       );
     } catch (e) {
       add("selftest-cleanup", "الفحص لا يترك أثرًا", false, String(e));
