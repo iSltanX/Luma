@@ -10,6 +10,7 @@
 import type { EditorCore } from "../editor";
 import { buildLongDocument } from "./corpus";
 import { theme } from "../lib/theme.svelte";
+import { fontStack } from "../lib/preferences.svelte";
 import { THEME_IDS } from "../tokens/themes";
 import { BUDGETS, LARGE_LIBRARY, LARGE_DOCUMENT, type Budget } from "./budgets";
 
@@ -1051,13 +1052,49 @@ export async function runSelfTest(
       `الحجم ${applied} والعمود ${measured}px — المحتوى ${beforePrefs === afterPrefs ? "مطابق" : "تغيّر"}`,
     );
 
-    // المؤشر يبقى موجودًا والتمرير لا يُصفَّر. الموضع بالبكسل يتغيّر
-    // حتمًا لأن النص أُعيد لفّه بمقاس أكبر — المصون هو ألّا يضيع.
+    // بند بطارية العربية ٢٤ يُعلن رقمًا حرفيًّا («٣٠٠→٣٠٠») لا مجرّد
+    // «لم يُصفَّر». كان الحارس هنا يقبل تمريرًا ارتدّ إلى ١ بوصفه
+    // «محفوظًا» — `docs/audit/AUDIT-2026-08-27.md` بند ب/٢٦. والتمرير
+    // فعلًا لا يتحرّك من تغيير الحجم وحده هنا: `caretToEnd` وضع المؤشر
+    // ثم ضُبط `scrollTop` يدويًا **بعد** ذلك، ولا فعلٌ لاحق يعيد لفّ
+    // الصفحة فوق نقطة التمرير — فالتساوي التام هو المتوقَّع فعليًّا لا
+    // ادّعاءً متساهلًا. مثلها `theme-switch` أعلاه — نفس المعيار.
+    const scrollKept = scrollBefore > 0 && scrollBefore === scrollAfter;
     add(
       "prefs-keep-caret",
       "تغيير الحجم والعرض يحفظ المؤشر والتمرير",
-      !!caretBefore && !!caretAfter && scrollBefore > 0 && scrollAfter > 0,
+      !!caretBefore && !!caretAfter && scrollKept,
       `المؤشر ${caretAfter ? "باقٍ" : "فُقد"} — التمرير ${Math.round(scrollBefore)}→${Math.round(scrollAfter)}`,
+    );
+
+    // البند نفسه غير محروس لتغيير **عائلة** الخط — الفرع الآخر الذي
+    // يذكره بند البطارية («تغيير الثيم أو الخط») ولا فحص يغيّره هنا.
+    const savedFamily = root.style.getPropertyValue("--luma-editor-family");
+    editor.focus();
+    editor.caretToEnd();
+    if (scroller) scroller.scrollTop = 300;
+    await paint();
+    const familyCaretBefore = editor.caretRect();
+    const familyScrollBefore = scroller?.scrollTop ?? -1;
+    const familyBlocksBefore = JSON.stringify(editor.getBlocks());
+
+    root.style.setProperty("--luma-editor-family", fontStack("Cairo"));
+    await paint();
+    const familyCaretAfter = editor.caretRect();
+    const familyScrollAfter = scroller?.scrollTop ?? -2;
+    const familyBlocksAfter = JSON.stringify(editor.getBlocks());
+
+    root.style.setProperty("--luma-editor-family", savedFamily || "");
+    await paint();
+
+    const familyScrollKept = familyScrollBefore > 0 && familyScrollBefore === familyScrollAfter;
+    add(
+      "prefs-keep-caret-font",
+      "تغيير عائلة الخط يحفظ المؤشر والتمرير أيضًا",
+      !!familyCaretBefore && !!familyCaretAfter && familyScrollKept &&
+        familyBlocksBefore === familyBlocksAfter,
+      `التمرير ${Math.round(familyScrollBefore)}→${Math.round(familyScrollAfter)} — ` +
+        `المؤشر ${familyCaretAfter ? "باقٍ" : "فُقد"}`,
     );
   }
 

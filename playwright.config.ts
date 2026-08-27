@@ -69,8 +69,15 @@ export default defineConfig({
      * المفاتيح مفعَّل — بندٌ في `docs/release-checklist.md`.
      */
     {
+      // مثبَّتٌ على ملفٍّ واحد بعينه لا نمطٍ يلتقط الاسم في أي مجلّد:
+      // `/access\.spec\.ts/` غير المرساة التقطت `bridge/access.spec.ts`
+      // حين أُضيف ذلك الملف، فشغَّلت اختبارًا خاصًّا بـWebKit (أ/٧) على
+      // Chromium حيث لا ينطبق — وسقط. رُوعي لهذا: الملف صار
+      // `bridge/a11y.spec.ts` بلا تصادم، والنمط هنا صار مرسًى على نهاية
+      // المسار المطلق («/access.spec.ts» فقط — Playwright يقارن
+      // `testMatch` بالمسار الكامل للملف لا بمساره النسبي لـ`testDir`).
       name: "chromium-keyboard",
-      testMatch: /access\.spec\.ts/,
+      testMatch: /\/access\.spec\.ts$/,
       use: { ...devices["Desktop Chrome"] },
     },
   ],

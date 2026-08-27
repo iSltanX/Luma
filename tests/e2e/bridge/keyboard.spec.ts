@@ -7,6 +7,23 @@ import {
   typeParagraph,
 } from "./helpers";
 
+/** يعدّ العناصر المركَّزة خلال `steps` ضغطاتِ `key` التي تصل داخل `[data-settings]`. */
+async function tabsReachingSettings(
+  page: Page,
+  key: "Tab" | "Shift+Tab",
+  steps: number,
+): Promise<string[]> {
+  const reached: string[] = [];
+  for (let i = 0; i < steps; i++) {
+    await page.keyboard.press(key);
+    const inSettings = await page.evaluate(
+      () => !!document.activeElement?.closest("[data-settings]"),
+    );
+    if (inSettings) reached.push((await focused(page)).label);
+  }
+  return reached;
+}
+
 /**
  * ترتيب التبويب في شريط الأسطح — **والأزرار الثلاثة مضاءة**.
  *
@@ -170,4 +187,24 @@ test("شاشة الإعدادات تُخرج الشريط كلّه من مسار
     if (under) reached.push((await focused(page)).label);
   }
   expect(reached, "لا عنصر تحت الشاشة يصله Tab").toEqual([]);
+});
+
+/**
+ * أ/١١: ورقة الخط تعلو شاشة الإعدادات، وتلك تصير `inert` تحتها —
+ * `IMPLEMENTATION.md:508`. لا مدخل لها في وضع الويب إلا `demo_stage:
+ * "fonts"` (الجسر)، وهو ما يمرّ **بشاشة الإعدادات فعلًا** قبل فتح
+ * الورقة (`App.svelte`، فرع `stage === "fonts"`) — فالطبقتان قائمتان
+ * معًا كما في الاستعمال الحقيقي.
+ */
+test("ورقة الخط تُخرج شاشة الإعدادات كلّها من مسار التبويب — أ/١١", async ({
+  page,
+}) => {
+  await open(page, { stage: "fonts" });
+  await expect(page.locator("[data-font-sheet]")).toBeVisible();
+
+  const forward = await tabsReachingSettings(page, "Tab", 20);
+  expect(forward, "عنصرٌ خلف ورقة الخط استقبل التركيز أمامًا").toEqual([]);
+
+  const backward = await tabsReachingSettings(page, "Shift+Tab", 20);
+  expect(backward, "عنصرٌ خلف ورقة الخط استقبل التركيز خلفًا").toEqual([]);
 });

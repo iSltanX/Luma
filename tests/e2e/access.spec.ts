@@ -1,4 +1,5 @@
 import { test, expect, type Page } from "@playwright/test";
+import { HAS_REAL_HIT_BOX_SRC } from "./hit-target";
 
 /**
  * الوصول — صفّ «الوصول» في `IMPLEMENTATION.md` §١٥، ونطاق المرحلة ٧.
@@ -247,40 +248,82 @@ test.describe("حلقة التركيز على كل عنصر تفاعلي", () =>
 });
 
 test.describe("أهداف التفاعل ٣٢×٣٢ فعليًا", () => {
+  // بند ب/٥: كانت `.luma-hit` تُقاس بـ`Math.max(r.height, 32)` — شرطٌ
+  // لا يمكن أن يتحقق أبدًا، فادّعى الحارس تحقّق ما لا يُختبر. القياس
+  // الآن هندسي حقيقي: هل زوايا صندوق ٣٢×٣٢ حول مركز العنصر تصل إليه
+  // فعلًا عبر `elementFromPoint` — وهذا عين ما يقرّره متصفحٌ عند نقرة
+  // هناك، لا ادّعاءٌ عن ارتفاع البكسلات المرسومة.
   for (const [name, url] of [
     ["المحرر", "/"],
     ["الإعدادات", "/?settings=1"],
   ] as const) {
     test(`${name}: لا هدف دون ٣٢×٣٢`, async ({ page }) => {
       await page.goto(url);
-      const small = await page.evaluate(() => {
-        const sel =
-          "button:not([disabled]), input:not([disabled]), [role='tab'], [tabindex='0']";
-        const out: string[] = [];
-        for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
-          if (el.closest("[inert]")) continue;
-          let r = el.getBoundingClientRect();
-          // الحقل الأصلي المخفي: هدفه الحقيقي تسميته المرئية
-          if (r.width < 4 || r.height < 4) {
-            const lab = el.closest("label");
-            if (lab) r = lab.getBoundingClientRect();
+      const small = await page.evaluate(
+        ({ fnSrc }) => {
+          // منطق الأركان في `./hit-target.ts` (مشترك مع `bridge/a11y.spec.ts`)
+          // — مصدره نصًّا يعبر إلى المتصفح كوسيط، ويُعاد بناؤه هنا: لا
+          // استيراد مباشر، ولا `page.addInitScript` (لا يُعرِّف اسمًا عامًّا).
+          // eslint-disable-next-line no-new-func -- إعادة بناء دالّة مشتركة من مصدرها
+          const hasRealHitBox = new Function(`return (${fnSrc});`)() as (
+            el: Element,
+            rect: { left: number; top: number; width: number; height: number },
+          ) => boolean;
+
+          const sel =
+            "button:not([disabled]), input:not([disabled]), [role='tab'], [tabindex='0']";
+          const out: string[] = [];
+          for (const el of Array.from(document.querySelectorAll<HTMLElement>(sel))) {
+            if (el.closest("[inert]")) continue;
+            let r = el.getBoundingClientRect();
+            // الحقل الأصلي المخفي: هدفه الحقيقي تسميته المرئية
+            if (r.width < 4 || r.height < 4) {
+              const lab = el.closest("label");
+              if (lab) r = lab.getBoundingClientRect();
+            }
+            // مساحة الكتابة ليست «هدفًا» بل سطح تحرير
+            if (el.classList.contains("luma-editor")) continue;
+
+            let width = r.width;
+            let height = r.height;
+            // منطقة الالتقاط قد تتجاوز المرسوم — `.luma-hit` في app.css
+            // تمدّها بـ`::after`. لا صندوق منفصل يُقاس بـ`getBoundingClientRect`
+            // — فنسأل المتصفح نفسه: هل أركان صندوق ٣٢×٣٢ حول المركز
+            // تصيب العنصر فعلًا؟
+            if (
+              el.classList.contains("luma-hit") &&
+              (r.width < 32 || r.height < 32) &&
+              hasRealHitBox(el, r)
+            ) {
+              width = 32;
+              height = 32;
+            }
+            if (width < 32 || height < 32) {
+              const n = (el.getAttribute("aria-label") || el.textContent || "").trim();
+              out.push(`«${n.slice(0, 20)}» ${Math.round(width)}×${Math.round(height)}`);
+            }
           }
-          // مساحة الكتابة ليست «هدفًا» بل سطح تحرير
-          if (el.classList.contains("luma-editor")) continue;
-          // منطقة الالتقاط قد تتجاوز المرسوم — `.luma-hit` في app.css
-          const after = el.classList.contains("luma-hit")
-            ? Math.max(r.height, 32)
-            : r.height;
-          if (r.width < 32 || after < 32) {
-            const n = (el.getAttribute("aria-label") || el.textContent || "").trim();
-            out.push(`«${n.slice(0, 20)}» ${Math.round(r.width)}×${Math.round(r.height)}`);
-          }
-        }
-        return out;
-      });
+          return out;
+        },
+        { fnSrc: HAS_REAL_HIT_BOX_SRC },
+      );
       expect(small, "هدف تفاعل دون ٣٢×٣٢ — §١٣").toEqual([]);
     });
   }
+});
+
+test.describe("مؤشر الحفظ يُعلَن حيًّا — أ/١٢", () => {
+  // `docs/quality-report.md:67` يسم البند «آلي» — «يحرسه اختبار يسقط»
+  // — بلا حارس فعلي: `aria-live`/`aria-atomic` لا تَردان خارج
+  // `SaveStatus.svelte` إلا في الوثائق.
+  test("aria-live=\"polite\" وaria-atomic=\"true\" على مؤشر الحفظ المرسوم", async ({
+    page,
+  }) => {
+    await page.goto("/");
+    const status = page.locator(".save .status");
+    await expect(status).toHaveAttribute("aria-live", "polite");
+    await expect(status).toHaveAttribute("aria-atomic", "true");
+  });
 });
 
 test.describe("تقليل الحركة", () => {

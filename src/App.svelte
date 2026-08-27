@@ -25,6 +25,7 @@
   import { MOTION } from "./tokens/motion";
   import { historyReaches } from "./lib/menu";
   import { createCloseRequest } from "./lib/closing";
+  import { deriveWindowControlsSide } from "./lib/windowChrome";
   import type { SettingsSectionId } from "./lib/settings";
   import type {
     DocumentCard,
@@ -1270,8 +1271,10 @@
     try {
       const x = await call<number | null>("window_controls_x");
       if (typeof x === "number") {
-        document.documentElement.dataset.windowControls =
-          x < window.innerWidth / 2 ? "left" : "right";
+        document.documentElement.dataset.windowControls = deriveWindowControlsSide(
+          x,
+          window.innerWidth,
+        );
       }
     } catch (e) {
       console.error("[luma] تعذّر قياس موضع أزرار النافذة:", e);
