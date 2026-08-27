@@ -460,6 +460,8 @@ export async function installBridge(
         };
         return "/tmp/luma-export/" + (a["fileName"] as string);
       },
+      /** PDF: لا لوحة نظام في المتصفح — التسجيل عبر `calls()` العام يكفي. */
+      print_document: () => null,
       open_project_page: () => null,
       ui_ready: () => null,
       close_declined: () => null,

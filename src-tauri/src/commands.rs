@@ -553,6 +553,22 @@ pub async fn export_document(
     Ok(Some(path.to_string_lossy().into_owned()))
 }
 
+/// يفتح لوحة الطباعة الأصلية على النافذة نفسها — مسار PDF من §٢٠ مسألة ٢٠.
+///
+/// **لا محتوى يُمرَّر**: الطباعة ترسم الشجرة المعروضة في الوقت نفسه —
+/// أوفى بمبدأ «ما تراه هو ما يُكتب» من `export_document` نفسه، إذ لا
+/// وسيط قراءة كتلٍ بينهما أصلًا. وهذا يشمل معاينة نسخة قديمة: تُطبع
+/// كما تُقرأ، بالقاعدة ذاتها. الورق أبيض دائمًا وعناصر الواجهة تُخفى
+/// بأنماط `@media print` في `app.css` و`EditorShell.svelte`؛ لا شيء
+/// من ذلك يخصّ هذا الأمر.
+///
+/// [`WebviewWindow::print`] يفتح اللوحة ولا ينتظر إغلاقها — فلا حجب
+/// يستوجب `async` هنا، لكنها مطابقةً لبقية أوامر هذا الملف على كل حال.
+#[tauri::command]
+pub async fn print_document(window: tauri::WebviewWindow) -> Result<(), String> {
+    window.print().map_err(|e| e.to_string())
+}
+
 #[cfg(test)]
 mod guards {
     use super::{delete_document_inner, save_document_inner, SavePayload, Storage};

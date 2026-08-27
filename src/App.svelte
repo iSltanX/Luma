@@ -746,19 +746,23 @@
    */
   async function exportAs(format: ExportFormat) {
     if (!invoke) return;
-    const blocks = editor.getBlocks();
-    const doc = { title, blocks };
 
     if (format === "pdf") {
-      // لم تُعتمد بعد — الطباعة إلى PDF تحتاج ورقة أنماط طباعة
-      // (`@media print`) وإلا خرجت صفحةً واحدة بأدوات الواجهة فيها.
-      fail(
-        `تصدير ${isolate("PDF")} لم يكتمل بعد`,
-        `اختر ${isolate("Markdown")} أو نصًّا عاديًا.`,
-      );
+      // لا كتل تُقرأ هنا: الطباعة ترسم الشجرة المعروضة نفسها — أوفى
+      // بـ«ما تراه هو ما يُكتب» من مسار Markdown/نصّ أدناه، إذ لا وسيط
+      // بينهما أصلًا. أنماط `@media print` في `app.css` وEditorShell
+      // تُخفي عناصر الواجهة وتفرض الورق الأبيض وترفع القصّ.
+      try {
+        await invoke<void>("print_document");
+      } catch (e) {
+        fail("تعذّر فتح لوحة الطباعة", e);
+      }
+      editor.focus();
       return;
     }
 
+    const blocks = editor.getBlocks();
+    const doc = { title, blocks };
     const contents = format === "markdown" ? toMarkdown(doc) : toPlainText(doc);
     try {
       await invoke<string | null>("export_document", {

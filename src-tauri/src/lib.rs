@@ -516,6 +516,7 @@ pub fn run() {
             commands::list_fonts,
             commands::pick_and_import_font,
             commands::export_document,
+            commands::print_document,
             commands::list_revisions,
             commands::load_revision,
             commands::restore_revision,

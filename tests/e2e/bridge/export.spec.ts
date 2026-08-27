@@ -73,18 +73,25 @@ test("اسم الملف يحمل العنوان العربي كما هو", async
 });
 
 /**
- * **PDF لم تُعتمد بعد** — الطباعة تحتاج ورقة أنماط طباعة، وبدونها تخرج
- * صفحةٌ واحدة بأدوات الواجهة فيها (قِيس في `Luma.app` — تجربةُ S9).
- * فالبند يقول ذلك للكاتب ولا يكتب ملفًا ناقصًا صامتًا.
+ * **PDF عبر لوحة الطباعة الأصلية لا `export_document`** — الشرح في
+ * `commands.rs`: لا كتل تُقرأ ولا محتوى يُمرَّر، فـ`lastExport` (خاصّة
+ * بمسار Markdown/نصّ) تبقى فارغة بعد PDF بالضرورة، لا لأن المسار غير
+ * مكتمل. أنماط `@media print` (`app.css`، `EditorShell.svelte`) هي
+ * ما يُخفي عناصر الواجهة ويفرض الورق الأبيض — مُختبرة بمعزل في
+ * `tests/e2e/bridge/print.spec.ts`.
  */
-test("PDF تُبلّغ أنها غير مكتملة ولا تكتب ملفًا", async ({ page }) => {
+test("PDF يطرق لوحة الطباعة الأصلية — لا export_document", async ({ page }) => {
   await open(page);
   await page.locator(EDITOR).click();
   await typeParagraph(page, "نصٌّ فيه ما يكفي من الكلمات ليصير مستندًا حقيقيًّا.");
   await currentDocId(page);
 
-  await menuExport(page, "pdf");
+  expect(await menuExport(page, "pdf"), "لا مستمع لبند التصدير").toBeGreaterThan(0);
 
-  await expect(page.locator('[role="alert"], .alert').first()).toBeVisible();
-  expect(await lastExport(page), "لا ملف يُكتب قبل اكتمال المسار").toBeNull();
+  await expect
+    .poll(() => page.evaluate(() => window.__luma.calls("print_document")), {
+      message: "لم يصل بند PDF إلى أمر الطباعة",
+    })
+    .toBeGreaterThan(0);
+  expect(await lastExport(page), "PDF لا يمرّ بـexport_document").toBeNull();
 });
