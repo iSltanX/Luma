@@ -4,6 +4,7 @@
   "description": "محرر كتابة هادئ للكاتب العربي على macOS",
   "type": "module",
   "private": true,
+  "license": "MIT",
   "scripts": {
     "dev": "vite",
     "build": "vite build",
