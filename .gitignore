@@ -16,8 +16,8 @@ playwright-report/
 /tests/e2e/.cache/
 /tests/e2e/*-snapshots/*-actual.png
 
-# صفحة الحالة — ذاكرة مؤقتة للقطات
-/docs/site/.cache/
-
 # مخرجات Playwright MCP — لقطات وسجلات جلسة
 /.playwright-mcp/
+
+# Local agent/tool config
+.claude/

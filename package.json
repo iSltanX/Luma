@@ -21,7 +21,6 @@
     "test:e2e": "playwright test",
     "verify": "npm run check && npm run check:rust && npm run test && npm run test:rust",
     "verify:full": "npm run verify && npm run test:e2e",
-    "site": "node docs/site/build.mjs",
     "app:build:universal": "tauri build --target universal-apple-darwin"
   },
   "dependencies": {
