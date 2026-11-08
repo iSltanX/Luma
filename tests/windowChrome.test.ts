@@ -2,7 +2,7 @@ import { describe, expect, test } from "vitest";
 import { deriveWindowControlsSide } from "../src/lib/windowChrome";
 
 /**
- * جانب أزرار النافذة — بند ب/٢١ في `docs/audit/AUDIT-2026-08-27.md`.
+ * جانب أزرار النافذة — بند ب/٢١ في تدقيق ٢٧ أغسطس ٢٠٢٦.
  *
  * الاشتقاق كان مطويًا سطرًا واحدًا داخل `App.svelte` بلا اختبار، والفحص
  * الذاتي القائم يقرأ نفس السمة التي تشتقّها هذه الدالة فيقارن نفسه بها

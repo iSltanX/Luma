@@ -3,7 +3,7 @@ import { defineConfig, devices } from "@playwright/test";
 /**
  * فحص انحدار على طبقة الويب.
  *
- * **ليس بديلًا عن التحقق داخل `Luma.app`** — `PLAN.md`.
+ * **ليس بديلًا عن التحقق داخل `Luma.app`**.
  * يُفضَّل محرك WebKit لأنه الأقرب إلى نافذة العرض الفعلية، لكنه
  * ليس WKWebView نفسه: لا WebDriver لها على macOS.
  */

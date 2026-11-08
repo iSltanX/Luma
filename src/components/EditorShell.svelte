@@ -57,7 +57,7 @@
   }: {
     title: string;
     saveState: SaveState;
-    /** الظهور الأول لـ«محفوظ» في مستند جديد — `FEEL-PLAN` M0 (ج). */
+    /** الظهور الأول لـ«محفوظ» في مستند جديد. */
     saveDebut?: boolean;
     /** يختفي مؤشر الحفظ أثناء معاينة نسخة — `Luma.md` §٩ **ثابت**. */
     showSaveStatus?: boolean;
@@ -384,7 +384,7 @@
     border: 1px solid var(--border-subtle);
     border-radius: var(--radius-lg);
     /* الظل الخفيف من نظام الظلال (اللغة البصرية §٦): «لإشعار المستخدم
-       بالارتفاع دون إحداث فوضى بصرية» — FEEL-PLAN M0. */
+       بالارتفاع دون إحداث فوضى بصرية». */
     box-shadow: var(--shadow-low);
     transition:
       background-color var(--motion-structural) var(--ease-enter),

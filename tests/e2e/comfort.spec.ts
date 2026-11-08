@@ -36,7 +36,7 @@ async function enterComfort(page: Page) {
 function offsetFromBand(page: Page) {
   return page.evaluate(() => {
     // **النطاق يُحسب ولا يُقرأ من عنصر**: لم يعد يُرسم مستطيلًا خلف
-    // السطر (FEEL-PLAN M10)، ومرساته ٤٥٫٥٪ من مساحة الكتابة — وهي
+    // السطر، ومرساته ٤٥٫٥٪ من مساحة الكتابة — وهي
     // المصدر نفسه الذي يقيس عليه `lib/typewriter.ts`.
     const area = document.querySelector(".writing");
     if (!area) return null;
@@ -67,7 +67,7 @@ test("المحرر المريح غلاف واحد: تختفي الأشرطة و�
   await enterComfort(page);
 
   // **الأشرطة تنطوي ولا تُزال** — وهذا ما يجعل أكبر تحوّل في المنتج
-  // متّصلًا لا قطعًا (FEEL-PLAN M2). والمقياس هو الغاية لا الوسيلة:
+  // متّصلًا لا قطعًا. والمقياس هو الغاية لا الوسيلة:
   // لا يُرى منها شيء، ولا يصلها تركيز، ولا تبلغ قارئ الشاشة.
   await expect(page.locator(".titlebar")).toHaveAttribute("inert", "");
   await expect(page.locator(".surfaces")).toHaveAttribute("inert", "");
@@ -104,7 +104,7 @@ test("لا ورقة في المحرر المريح — النص على السط�
 
   await enterComfort(page);
   // الحدّ يبقى بعرضه ويفقد لونه: عرضٌ يتغيّر وسط الحركة يزيح التخطيط
-  // بكسلين، ولونٌ يذوب لا يزيح شيئًا — FEEL-PLAN M2.
+  // بكسلين، ولونٌ يذوب لا يزيح شيئًا.
   await expect
     .poll(() =>
       page.evaluate(
@@ -327,7 +327,7 @@ test("لكل طبقة تعطيل مستقل", async ({ page }) => {
   // الافتراضي: الآلة الكاتبة والتركيز يعملان وZen مطفأ — §٧.
   // والترتيب هو ترتيب الإعدادات نفسه (الآلة الكاتبة ← التركيز ← Zen):
   // كان مقلوبًا في الشريط، فمن بنى خريطته في أحدهما وجدها معكوسة في
-  // الآخر — FEEL-PLAN M6.
+  // الآخر.
   expect(await state()).toEqual([
     ["الآلة الكاتبة", "true"],
     ["التركيز", "true"],

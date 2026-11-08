@@ -108,7 +108,7 @@ test("الوزن يدخل، والمائل لا — §٥", async ({ page }) => {
   await page.keyboard.press("Meta+a");
   await page.keyboard.press("Meta+b");
   // «بديل التمييز هو علامة الاقتباس العربية «» أو **الوزن**» — §٥،
-  // فالوزن ما تسمّيه الوثيقة بديلًا لا استثناءً منها (FEEL-PLAN M11).
+  // فالوزن ما تسمّيه الوثيقة بديلًا لا استثناءً منها.
   await expect(page.locator(`${EDITOR} strong`)).toHaveCount(1);
   // **ولا مائل**: العربية لا تُمال، ولا عقدة له في المخطط أصلًا
   await expect(page.locator(`${EDITOR} em, ${EDITOR} i`)).toHaveCount(0);

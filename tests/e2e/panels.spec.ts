@@ -86,7 +86,7 @@ test("عمود اللوحة ٣٢٠ ويعيد تمركز الورقة فيما �
     Math.round(document.querySelector(".sheet")!.getBoundingClientRect().left),
   );
   await page.click(LIBRARY);
-  // دخول اللوحة صار حركة ٣٠٠ms (اللغة البصرية §١١ — FEEL-PLAN M0)،
+  // دخول اللوحة صار حركة ٣٠٠ms (اللغة البصرية §١١)،
   // فالمواضع تُقاس بعد استقرارها لا لحظة النقر.
   await expect
     .poll(() =>
@@ -231,7 +231,7 @@ test("شريط التحديد يظهر مع التحديد ويختفي عند �
   await selectWord(page);
   await expect(page.locator("[data-selection-toolbar]")).toBeVisible();
 
-  // **مكانٌ ثابت أسفل المساحة لا طوفٌ فوق التحديد** — FEEL-PLAN M5.
+  // **مكانٌ ثابت أسفل المساحة لا طوفٌ فوق التحديد**.
   // «بنمط ثابت لا يجعل استعادتها غامضة» (§٥): الموضع واحد مهما كان
   // التحديد، ومتمركز على عمود الكتابة، ولا يحجب سطرًا فوقه.
   const placed = await page.evaluate(() => {
