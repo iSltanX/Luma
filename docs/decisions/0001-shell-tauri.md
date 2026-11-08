@@ -12,7 +12,7 @@
 
 ## الدليل
 
-قياس داخل `Luma.app` (إصدار، arm64، macOS 26.6). الأرقام في `docs/evidence/phase1-probe-report.json`.
+قياس داخل `Luma.app` (إصدار، arm64، macOS 26.6). الأرقام في `docs/evidence/phase1-probe-report.json` (محذوف من المستودع، وباقٍ في تاريخ Git).
 
 ### ما يجب أن يأتي من المنصة — §١
 
