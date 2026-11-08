@@ -215,18 +215,23 @@
 
 | الأمر | ما يفعله |
 | --- | --- |
-| <span dir="ltr">`npm install`</span> | يثبّت الاعتماديات |
+| <span dir="ltr">`npm ci`</span> | يثبّت الاعتماديات كما في <span dir="ltr">`package-lock.json`</span> |
 | <span dir="ltr">`npm run app`</span> | تشغيل تطويري للتطبيق |
 | <span dir="ltr">`npm run verify`</span> | svelte-check وclippy وfmt واختبارات الواجهة والنواة |
-| <span dir="ltr">`npm run test:e2e`</span> | اختبارات Playwright في WebKit وChromium |
-| <span dir="ltr">`npm run app:build:universal`</span> | يبني حزمة Universal |
+| <span dir="ltr">`npm run test:e2e`</span> | اختبارات Playwright في WebKit وChromium (تحتاج <span dir="ltr">`npx playwright install webkit chromium`</span>) |
+| <span dir="ltr">`npm run app:build:universal`</span> | يبني حزمة Universal (تحتاج <span dir="ltr">`rustup target add aarch64-apple-darwin x86_64-apple-darwin`</span>) |
 
-مبني بـ Tauri 2 وRust، بواجهة Svelte 5 وTypeScript، ومحرر ProseMirror. قرارات التصميم الهندسية في [docs/decisions](docs/decisions)، وسجل التغييرات في [CHANGELOG.md](CHANGELOG.md).
+مبني بـ Tauri 2 وRust، بواجهة Svelte 5 وTypeScript، ومحرر ProseMirror.
+
+- مواصفة المنتج وقواعد سلوكه: [Luma.md](Luma.md).
+- البنية ونموذج البيانات والتخزين: [IMPLEMENTATION.md](IMPLEMENTATION.md).
+- القرارات الهندسية: [docs/decisions](docs/decisions)، وسلوك حالات الخطأ: [docs/error-behaviour.md](docs/error-behaviour.md).
+- قائمة التحقق قبل كل إصدار: [docs/release-checklist.md](docs/release-checklist.md)، وسجل التغييرات: [CHANGELOG.md](CHANGELOG.md).
 </details>
 
 ## الرخصة
 
-مرخَّص بـ[MIT](LICENSE). الخطّان **Cairo** و**Almarai** برخصة SIL Open Font License 1.1.
+مرخَّص بـ[MIT](LICENSE). الخطّان المضمَّنان **Cairo** و**Almarai** برخصة SIL Open Font License 1.1، وحقوقهما ونصّ رخصتهما في [public/fonts](public/fonts/NOTICE.md).
 
 ---
 
