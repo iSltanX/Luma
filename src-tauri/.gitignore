@@ -1,1 +1,4 @@
 /target
+
+# مخطّطات يولّدها tauri-build مع كل بناء (cargo check/build)
+/gen/schemas
